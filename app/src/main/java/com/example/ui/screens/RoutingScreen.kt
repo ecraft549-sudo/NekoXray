@@ -2,6 +2,8 @@ package com.example.ui.screens
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -49,6 +51,7 @@ import com.example.ui.theme.SignalCrimson
 import com.example.ui.theme.SignalEmerald
 import com.example.ui.viewmodel.NekoUiState
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun RoutingScreen(
     state: NekoUiState,
@@ -144,12 +147,21 @@ fun RoutingScreen(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
+                            FlowRow(
+                                verticalArrangement = Arrangement.spacedBy(4.dp),
                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                             ) {
-                                Text(rule.name, style = MaterialTheme.typography.titleMedium)
-                                TagPill(strings.routeActionName(rule.action).uppercase(), badgeBg, badgeFg)
+                                Text(
+                                    text = rule.name,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    modifier = Modifier.align(Alignment.CenterVertically),
+                                )
+                                TagPill(
+                                    text = strings.routeActionName(rule.action).uppercase(),
+                                    containerColor = badgeBg,
+                                    contentColor = badgeFg,
+                                    modifier = Modifier.align(Alignment.CenterVertically),
+                                )
                             }
                             Spacer(Modifier.height(4.dp))
                             val summary = buildList {

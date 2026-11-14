@@ -72,6 +72,8 @@ fun TagPill(
             text = text,
             style = MaterialTheme.typography.labelSmall,
             fontWeight = FontWeight.Bold,
+            maxLines = 1,
+            softWrap = false,
             modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
         )
     }
