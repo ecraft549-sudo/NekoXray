@@ -12,6 +12,7 @@
 ![Kotlin](https://img.shields.io/badge/Kotlin-2.2-7F52FF?style=flat-square&logo=kotlin&logoColor=white)
 ![Jetpack Compose](https://img.shields.io/badge/Jetpack%20Compose-Material%203-4285F4?style=flat-square&logo=jetpackcompose&logoColor=white)
 ![Xray-core](https://img.shields.io/badge/Xray--core-v26.10.31-38BDF8?style=flat-square)
+[![License: MIT](https://img.shields.io/badge/License-MIT-34D399?style=flat-square)](LICENSE)
 
 </div>
 
@@ -115,3 +116,9 @@ gradle :app:testDebugUnitTest
 В папке `docs/` находится одностраничный сайт (`docs/index.html`), который автоматически загружает последний релиз с GitHub Releases, определяет архитектуру устройства (`arm64-v8a`, `armeabi-v7a`, `x86_64`, `x86`, `universal`), показывает список изменений, `SHA256SUMS.txt` и поддерживает переключение **RU / EN**.
 
 Чтобы опубликовать сайт на GitHub Pages: откройте **Settings → Pages → Source: GitHub Actions** (используется готовый workflow `.github/workflows/pages.yml`), либо выберите **Deploy from a branch → `/docs`**.
+
+---
+
+## Лицензия
+
+Проект распространяется под лицензией [MIT License](LICENSE).

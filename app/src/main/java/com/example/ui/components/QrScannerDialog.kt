@@ -390,9 +390,31 @@ private fun CameraQrPreview(
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val analyzerExecutor = remember { Executors.newSingleThreadExecutor() }
+    val isDisposed = remember { AtomicBoolean(false) }
+    val isClosing = remember { AtomicBoolean(false) }
+    var boundProvider by remember { mutableStateOf<ProcessCameraProvider?>(null) }
+    var boundCamera by remember { mutableStateOf<Camera?>(null) }
+    var boundAnalysis by remember { mutableStateOf<ImageAnalysis?>(null) }
 
-    DisposableEffect(Unit) {
-        onDispose { analyzerExecutor.shutdown() }
+    DisposableEffect(lifecycleOwner) {
+        onDispose {
+            isDisposed.set(true)
+            isClosing.set(true)
+            runCatching { boundCamera?.cameraControl?.enableTorch(false) }
+            runCatching { boundAnalysis?.clearAnalyzer() }
+            runCatching { boundProvider?.unbindAll() }
+            if (boundProvider == null) {
+                val mainExecutor = ContextCompat.getMainExecutor(context)
+                val future = ProcessCameraProvider.getInstance(context)
+                future.addListener({
+                    runCatching { future.get().unbindAll() }
+                }, mainExecutor)
+            }
+            boundCamera = null
+            boundAnalysis = null
+            boundProvider = null
+            analyzerExecutor.shutdown()
+        }
     }
 
     AndroidView(
@@ -401,10 +423,17 @@ private fun CameraQrPreview(
             val previewView = PreviewView(ctx).apply {
                 implementationMode = PreviewView.ImplementationMode.COMPATIBLE
             }
+            val mainExecutor = ContextCompat.getMainExecutor(ctx)
             val cameraProviderFuture = ProcessCameraProvider.getInstance(ctx)
             cameraProviderFuture.addListener({
+                if (isDisposed.get()) return@addListener
                 runCatching {
                     val cameraProvider = cameraProviderFuture.get()
+                    if (isDisposed.get()) {
+                        cameraProvider.unbindAll()
+                        return@addListener
+                    }
+
                     val preview = Preview.Builder().build().also {
                         it.surfaceProvider = previewView.surfaceProvider
                     }
@@ -425,14 +454,20 @@ private fun CameraQrPreview(
 
                     analysis.setAnalyzer(analyzerExecutor) { image ->
                         try {
+                            if (isDisposed.get() || isClosing.get()) return@setAnalyzer
                             val yBytes = QrBitmapDecoder.extractYBytes(image)
                             val decoded = QrBitmapDecoder.decodeFromYPlane(
                                 yBytes = yBytes,
                                 width = image.width,
                                 height = image.height,
                             )
-                            if (!decoded.isNullOrBlank()) {
-                                onDecoded(decoded)
+                            if (!decoded.isNullOrBlank() && isClosing.compareAndSet(false, true)) {
+                                mainExecutor.execute {
+                                    runCatching { analysis.clearAnalyzer() }
+                                    runCatching { boundCamera?.cameraControl?.enableTorch(false) }
+                                    runCatching { cameraProvider.unbindAll() }
+                                    onDecoded(decoded)
+                                }
                             }
                         } finally {
                             image.close()
@@ -446,9 +481,12 @@ private fun CameraQrPreview(
                         preview,
                         analysis,
                     )
+                    boundProvider = cameraProvider
+                    boundCamera = camera
+                    boundAnalysis = analysis
                     onCameraReady(camera)
                 }
-            }, ContextCompat.getMainExecutor(ctx))
+            }, mainExecutor)
             previewView
         },
     )

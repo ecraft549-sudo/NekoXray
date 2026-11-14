@@ -84,9 +84,13 @@ enum class RouteAction(val outboundTag: String, val displayName: String) {
 
 @Serializable
 enum class AppLanguage(val code: String, val nativeName: String) {
-    SYSTEM("system", "System / Системный"),
+    SYSTEM("system", "System"),
     EN("en", "English"),
     RU("ru", "Русский"),
+    ZH_CN("zh-CN", "简体中文"),
+    ZH_TW("zh-TW", "繁體中文"),
+    FA("fa", "فارسی"),
+    ES("es", "Español"),
 }
 
 @Serializable

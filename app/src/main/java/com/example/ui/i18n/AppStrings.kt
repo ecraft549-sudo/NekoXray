@@ -9,6 +9,7 @@ import com.example.core.model.ServiceMode
 import java.util.Locale
 
 data class AppStrings(
+    val isRtl: Boolean = false,
     // Navigation & Main Actions
     val navProfiles: String,
     val navGroups: String,
@@ -126,6 +127,10 @@ data class AppStrings(
     val languageSystem: String,
     val languageEnglish: String,
     val languageRussian: String,
+    val languageZhCn: String,
+    val languageZhTw: String,
+    val languageFa: String,
+    val languageEs: String,
     val serviceModeTitle: String,
     val darkThemeTitle: String,
     val darkThemeSubtitle: String,
@@ -203,432 +208,90 @@ data class AppStrings(
     val pinWidgetSentNotice: String,
     val pinWidgetUnsupportedNotice: String,
     val quickSettingsTileHint: String,
+
+    // Enum Labels
+    val serviceModeVpnLabel: String,
+    val serviceModeProxyOnlyLabel: String,
+    val ipv6DisableLabel: String,
+    val ipv6EnableLabel: String,
+    val ipv6PreferLabel: String,
+    val ipv6OnlyLabel: String,
+    val routeProxyLabel: String,
+    val routeDirectLabel: String,
+    val routeBlockLabel: String,
+    val perAppAllLabel: String,
+    val perAppBypassLabel: String,
+    val perAppOnlyLabel: String,
+    val perAppAllDesc: String,
+    val perAppBypassDesc: String,
+    val perAppOnlyDesc: String,
 ) {
     fun serviceModeName(mode: ServiceMode): String = when (mode) {
-        ServiceMode.VPN -> if (isRussian) "VPN (TUN)" else "VPN (TUN)"
-        ServiceMode.PROXY_ONLY -> if (isRussian) "Только прокси" else "Proxy Only"
+        ServiceMode.VPN -> serviceModeVpnLabel
+        ServiceMode.PROXY_ONLY -> serviceModeProxyOnlyLabel
     }
 
     fun ipv6ModeName(mode: IPv6Mode): String = when (mode) {
-        IPv6Mode.DISABLE -> if (isRussian) "Только IPv4" else "IPv4 Only"
-        IPv6Mode.ENABLE -> if (isRussian) "Авто (Dual Stack)" else "Dual Stack (Auto)"
-        IPv6Mode.PREFER -> if (isRussian) "Приоритет IPv6" else "Prefer IPv6"
-        IPv6Mode.ONLY -> if (isRussian) "Только IPv6" else "IPv6 Only"
+        IPv6Mode.DISABLE -> ipv6DisableLabel
+        IPv6Mode.ENABLE -> ipv6EnableLabel
+        IPv6Mode.PREFER -> ipv6PreferLabel
+        IPv6Mode.ONLY -> ipv6OnlyLabel
     }
 
     fun routeActionName(action: RouteAction): String = when (action) {
-        RouteAction.PROXY -> if (isRussian) "Прокси" else "Proxy"
-        RouteAction.DIRECT -> if (isRussian) "Напрямую" else "Direct"
-        RouteAction.BLOCK -> if (isRussian) "Блок" else "Block"
+        RouteAction.PROXY -> routeProxyLabel
+        RouteAction.DIRECT -> routeDirectLabel
+        RouteAction.BLOCK -> routeBlockLabel
     }
 
     fun perAppModeName(mode: PerAppProxyMode): String = when (mode) {
-        PerAppProxyMode.ALL -> if (isRussian) "Все приложения" else "All Apps"
-        PerAppProxyMode.BYPASS_SELECTED -> if (isRussian) "Обходить выбранные" else "Bypass Selected"
-        PerAppProxyMode.PROXY_SELECTED -> if (isRussian) "Только выбранные" else "Only Selected"
+        PerAppProxyMode.ALL -> perAppAllLabel
+        PerAppProxyMode.BYPASS_SELECTED -> perAppBypassLabel
+        PerAppProxyMode.PROXY_SELECTED -> perAppOnlyLabel
     }
 
     fun perAppModeDesc(mode: PerAppProxyMode): String = when (mode) {
-        PerAppProxyMode.ALL -> if (isRussian) "Весь трафик устройства идёт через Xray" else "Route all device apps through Xray"
-        PerAppProxyMode.BYPASS_SELECTED -> if (isRussian) "Выбранные приложения идут мимо VPN" else "Exclude chosen apps from VPN"
-        PerAppProxyMode.PROXY_SELECTED -> if (isRussian) "Только выбранные приложения идут через Xray VPN" else "Only chosen apps use Xray VPN"
+        PerAppProxyMode.ALL -> perAppAllDesc
+        PerAppProxyMode.BYPASS_SELECTED -> perAppBypassDesc
+        PerAppProxyMode.PROXY_SELECTED -> perAppOnlyDesc
     }
 
     fun languageOptionName(lang: AppLanguage): String = when (lang) {
         AppLanguage.SYSTEM -> languageSystem
         AppLanguage.EN -> languageEnglish
         AppLanguage.RU -> languageRussian
+        AppLanguage.ZH_CN -> languageZhCn
+        AppLanguage.ZH_TW -> languageZhTw
+        AppLanguage.FA -> languageFa
+        AppLanguage.ES -> languageEs
     }
-
-    val isRussian: Boolean
-        get() = navProfiles == "Профили"
 }
 
-val EnglishStrings = AppStrings(
-    navProfiles = "Profiles",
-    navGroups = "Groups",
-    navRouting = "Routing",
-    navTools = "Tools",
-    navSettings = "Settings",
-    connect = "Connect",
-    connecting = "Connecting",
-    disconnect = "Disconnect",
-    cancel = "Cancel",
-    save = "Save",
-    close = "Close",
-    back = "Back",
-    add = "Add",
-    delete = "Delete",
-    duplicate = "Duplicate",
-    edit = "Edit",
-
-    searchNodesPlaceholder = "Search nodes, SNI, protocol...",
-    allFilter = "All",
-    scanQrCode = "Scan QR Code",
-    scanQrShort = "Scan QR",
-    importUri = "Import URI",
-    importUriMenu = "Import URI / Clipboard / JSON",
-    newVlessReality = "New VLESS + REALITY",
-    newVmess = "New VMess",
-    newTrojan = "New Trojan",
-    newShadowsocks = "New Shadowsocks",
-    newWireGuard = "New WireGuard",
-    newSshTunnel = "New SSH Tunnel",
-    customXrayJson = "Custom Xray JSON",
-    importDialogTitle = "Import URI or Xray JSON",
-    importDialogDesc = "Paste vless:// (REALITY/XHTTP), vmess://, trojan://, ss://, socks://, ssh://, wg:// links or raw Xray config JSON.",
-    pasteFromClipboard = "Paste from Clipboard",
-    importAction = "Import",
-    emptyProfilesTitle = "No Xray Profiles Yet",
-    emptyProfilesSubtitle = "Import a vless:// REALITY link from clipboard, scan a QR code, or create a profile manually.",
-    statusConnected = "CONNECTED",
-    statusConnecting = "CONNECTING",
-    statusError = "ERROR",
-    statusReady = "READY",
-    statusIdleSelect = "IDLE · Select or import a node",
-    statusDirectBypass = "DIRECT BYPASS (NO libv2ray)",
-    missingNativeCoreBanner = "libv2ray.aar is not in app/libs/: REALITY / XHTTP / ML-KEM-768 runs in direct bypass until libv2ray.aar is added.",
-    testAllNodes = "Test all nodes",
-    testLatency = "Test Latency / Handshake",
-    previewXrayJson = "Preview Xray JSON",
-    shareQrUri = "Share QR / URI",
-    copiedUriNotice = "Copied URI to clipboard",
-
-    groupsTitle = "Groups & Subscriptions",
-    groupsSubtitle = "Manage local folders and Xray subscription links",
-    newBtn = "New",
-    subscriptionTag = "SUBSCRIPTION",
-    localTag = "LOCAL",
-    newGroupTitle = "New Group",
-    editGroupTitle = "Edit Group",
-    groupNameLabel = "Group Name",
-    subscriptionUrlToggle = "Subscription URL",
-    customUserAgentLabel = "Custom User-Agent",
-
-    routingTitle = "Xray Routing Rules",
-    strategyLabel = "Strategy",
-    bypassLanBadge = "Bypass LAN",
-    ruleBtn = "Rule",
-    perAppProxyCardTitle = "Per-App Proxy (App Selection)",
-    newRuleTitle = "New Routing Rule",
-    editRuleTitle = "Edit Routing Rule",
-    ruleNameLabel = "Rule Name",
-    domainsLabel = "Domains (e.g. ya.ru, domain:ru, geosite:category-ru)",
-    ipsLabel = "IP / CIDR (e.g. geoip:private, 10.0.0.0/8)",
-    portsLabel = "Ports",
-    protocolsLabel = "Protocols",
-    emptyMatcher = "Empty matcher",
-    perAppTitle = "Per-App Proxy",
-    copyList = "Copy List",
-    pasteList = "Paste List",
-    searchAppsPlaceholder = "Search app name or package ID...",
-    showSystemApps = "Show system apps",
-    noMatchingApps = "No matching apps found. Tap + to add or Paste List to import.",
-    addPackageTitle = "Add Package Name",
-    packageIdLabel = "Package ID (e.g. org.telegram.messenger)",
-    importAppListTitle = "Import App List",
-    importAppListDesc = "Paste NekoBox list: first line 'false' (Only Selected) or 'true' (Bypass Selected), then one package ID per line.",
-    fromClipboard = "From Clipboard",
-    merge = "Merge",
-    replace = "Replace",
-
-    engineRuntimeTitle = "Xray-core Runtime Engine",
-    libv2rayLinked = "LIBV2RAY LINKED",
-    configTunReady = "CONFIG + TUN READY",
-    realityKeygenTitle = "REALITY X25519 Keygen",
-    regenerate = "Regenerate",
-    privateKeyServer = "Private Key (Server)",
-    publicKeyPbk = "Public Key (pbk)",
-    shortIdSid = "Short ID (sid)",
-    copyServerRealityJson = "Copy Server REALITY config.json",
-    sniProbeTitle = "REALITY Masquerade SNI Probe",
-    sniProbeDesc = "Verify that a target domain supports TLSv1.3 & HTTP/2 before using it as REALITY dest / serverName.",
-    domainPort443 = "Domain (port 443)",
-    probeBtn = "Probe",
-    probeGood = "GOOD (TLSv1.3 supported)",
-    probeUnsuitable = "UNSUITABLE (requires TLSv1.3)",
-    logsTitle = "Xray Engine Logs",
-    clearLogs = "Clear logs",
-
-    settingsTitle = "Xray Settings",
-    languageTitle = "Interface Language",
-    languageSubtitle = "Choose English, Russian, or follow system locale",
-    languageSystem = "System",
-    languageEnglish = "English",
-    languageRussian = "Русский",
-    serviceModeTitle = "Service Mode",
-    darkThemeTitle = "Dark Cyber Theme",
-    darkThemeSubtitle = "Obsidian & cyan Wired interface",
-    perAppSettingsTitle = "Per-App Proxy",
-    inboundsTunTitle = "Inbounds & TUN",
-    socks5Port = "SOCKS5",
-    httpPort = "HTTP",
-    ipv6StrategyTitle = "IPv6 Routing Strategy",
-    dnsSniffingTitle = "DNS & Traffic Sniffing",
-    remoteDnsLabel = "Remote DNS (DoH / IP)",
-    directDnsLabel = "Direct DNS",
-    bypassLanTitle = "Bypass Private / LAN",
-    bypassLanSubtitle = "Route geoip:private directly outside tunnel",
-    sniffingTitle = "Traffic Sniffing",
-    sniffingSubtitle = "Detect HTTP / TLS / QUIC domains for routing",
-    routeOnlyTitle = "Route Only (Do not override destination IP)",
-    routeOnlySubtitle = "Useful for REALITY & custom DNS setups",
-    fragmentSectionTitle = "Xray TLS Fragment & Security",
-    enableFragmentTitle = "Enable TLS Hello Fragment",
-    enableFragmentSubtitle = "Splits TLS ClientHello via freedom fragment outbound",
-    lengthLabel = "Length",
-    intervalLabel = "Interval (ms)",
-    allowInsecureGlobalTitle = "Global Allow Insecure TLS",
-    allowInsecureGlobalSubtitle = "Disable certificate verification for TLS nodes (not used by REALITY)",
-    aboutDesc = "Migrated from NekoBoxForAndroid to Xray-core with native VLESS + REALITY + XTLS-Vision + XHTTP + SSH support.",
-
-    newProfileTitle = "New Xray Profile",
-    editProfileTitle = "Edit Profile",
-    protocolLabel = "Protocol",
-    profileNameLabel = "Profile Name",
-    serverAddressLabel = "Server Address",
-    portLabel = "Port",
-    authTypeLabel = "Authentication Type",
-    usernameLabel = "Username",
-    passwordLabel = "Password",
-    privateKeyLabel = "Private Key (PEM / OpenSSH)",
-    passphraseOptionalLabel = "Private Key Passphrase (optional)",
-    publicKeyOptionalLabel = "Server Public Key (optional, one per line)",
-    transportNetworkLabel = "Transport Network",
-    transportSecurityLabel = "Transport Security",
-    realitySettingsTitle = "Xray REALITY Settings",
-    tlsSettingsTitle = "TLS Settings",
-    probeRealitySniBtn = "Probe REALITY SNI TLSv1.3 Support",
-    enableMuxTitle = "Enable Xray Mux",
-    enableMuxSubtitle = "Ignored automatically when XTLS Vision flow is active",
-    validationChecksTitle = "Xray Validation Checks",
-    saveProfileBtn = "Save Xray Profile",
-    validConfigBanner = "Valid Xray-core configuration",
-    tapQrFullscreen = "Tap QR to expand fullscreen",
-    qrTooLarge = "URI is too large for QR encoding. Copy the URI below instead.",
-    copyUriBtn = "Copy URI",
-    scannerTitle = "Scan Xray / Neko QR",
-    scannerPermissionPrompt = "Camera permission is required to scan QR codes, or pick a screenshot from gallery.",
-    allowCameraBtn = "Allow Camera",
-    fromGalleryBtn = "From Gallery",
-    scanImageBtn = "Scan Image",
-    torchOnBtn = "Torch",
-    torchOffBtn = "Torch Off",
-    qrNotFoundInImage = "QR code not found in selected image.",
-
-    switchedProfilePrefix = "Reconnected to",
-    widgetNoProfileTitle = "No Profile Selected",
-    widgetNoProfileSubtitle = "Open NekoXray to add a node",
-    widgetTapToConnect = "Tap power to connect",
-    widgetsSectionTitle = "Widgets & Quick Tray",
-    trayWidgetTitle = "Notification Tray Widget",
-    trayWidgetSubtitle = "Keep a quick Connect & Switch widget pinned in the notification shade",
-    pinStatusWidgetBtn = "Add 4×2 Status Widget",
-    pinCompactWidgetBtn = "Add 2×1 Switch Widget",
-    pinMiniWidgetBtn = "Add 1×1 Block Widget",
-    miniWidgetOn = "ON",
-    miniWidgetOff = "OFF",
-    pinWidgetSentNotice = "Launcher prompt opened to add widget to Home screen.",
-    pinWidgetUnsupportedNotice = "Your launcher does not support auto-pinning. Long-press Home screen → Widgets → NekoXray.",
-    quickSettingsTileHint = "Tip: You can also add the NekoXray tile in Android Quick Settings (swipe down twice → Edit).",
-)
-
-val RussianStrings = AppStrings(
-    navProfiles = "Профили",
-    navGroups = "Группы",
-    navRouting = "Роутинг",
-    navTools = "Утилиты",
-    navSettings = "Настройки",
-    connect = "Подключить",
-    connecting = "Подключение",
-    disconnect = "Отключить",
-    cancel = "Отмена",
-    save = "Сохранить",
-    close = "Закрыть",
-    back = "Назад",
-    add = "Добавить",
-    delete = "Удалить",
-    duplicate = "Дублировать",
-    edit = "Изменить",
-
-    searchNodesPlaceholder = "Поиск узлов, SNI, протокола...",
-    allFilter = "Все",
-    scanQrCode = "Сканировать QR-код",
-    scanQrShort = "Скан QR",
-    importUri = "Импорт URI",
-    importUriMenu = "Импорт URI / Буфер / JSON",
-    newVlessReality = "Новый VLESS + REALITY",
-    newVmess = "Новый VMess",
-    newTrojan = "Новый Trojan",
-    newShadowsocks = "Новый Shadowsocks",
-    newWireGuard = "Новый WireGuard",
-    newSshTunnel = "Новый SSH-туннель",
-    customXrayJson = "Свой Xray JSON",
-    importDialogTitle = "Импорт URI или Xray JSON",
-    importDialogDesc = "Вставьте ссылки vless:// (REALITY/XHTTP), vmess://, trojan://, ss://, socks://, ssh://, wg:// или готовый JSON Xray.",
-    pasteFromClipboard = "Вставить из буфера",
-    importAction = "Импортировать",
-    emptyProfilesTitle = "Пока нет профилей Xray",
-    emptyProfilesSubtitle = "Вставьте ссылку vless:// REALITY из буфера обмена, отсканируйте QR-код или создайте профиль вручную.",
-    statusConnected = "ПОДКЛЮЧЕНО",
-    statusConnecting = "ПОДКЛЮЧЕНИЕ",
-    statusError = "ОШИБКА",
-    statusReady = "ГОТОВ",
-    statusIdleSelect = "ОЖИДАНИЕ · Выберите или добавьте узел",
-    statusDirectBypass = "ПРЯМОЙ ОБХОД (НЕТ libv2ray)",
-    missingNativeCoreBanner = "libv2ray.aar отсутствует в app/libs/: REALITY / XHTTP / ML-KEM-768 работают в прямом обходе.",
-    testAllNodes = "Проверить все узлы",
-    testLatency = "Проверить пинг / рукопожатие",
-    previewXrayJson = "Просмотр Xray JSON",
-    shareQrUri = "Поделиться QR / URI",
-    copiedUriNotice = "Ссылка скопирована в буфер обмена",
-
-    groupsTitle = "Группы и подписки",
-    groupsSubtitle = "Управление папками и ссылками подписки Xray",
-    newBtn = "Создать",
-    subscriptionTag = "ПОДПИСКА",
-    localTag = "ЛОКАЛЬНАЯ",
-    newGroupTitle = "Новая группа",
-    editGroupTitle = "Изменить группу",
-    groupNameLabel = "Название группы",
-    subscriptionUrlToggle = "URL подписки",
-    customUserAgentLabel = "Свой User-Agent",
-
-    routingTitle = "Правила маршрутизации",
-    strategyLabel = "Стратегия",
-    bypassLanBadge = "Обход LAN",
-    ruleBtn = "Правило",
-    perAppProxyCardTitle = "Прокси для приложений (Per-App)",
-    newRuleTitle = "Новое правило роутинга",
-    editRuleTitle = "Изменить правило роутинга",
-    ruleNameLabel = "Название правила",
-    domainsLabel = "Домены (напр. ya.ru, domain:ru, geosite:category-ru)",
-    ipsLabel = "IP / CIDR (напр. geoip:private, 10.0.0.0/8)",
-    portsLabel = "Порты",
-    protocolsLabel = "Протоколы",
-    emptyMatcher = "Пустое условие",
-    perAppTitle = "Приложения (Per-App)",
-    copyList = "Копировать",
-    pasteList = "Вставить",
-    searchAppsPlaceholder = "Поиск по названию или ID пакета...",
-    showSystemApps = "Системные приложения",
-    noMatchingApps = "Приложения не найдены. Нажмите + или «Вставить».",
-    addPackageTitle = "Добавить пакет вручную",
-    packageIdLabel = "ID пакета (напр. org.telegram.messenger)",
-    importAppListTitle = "Импорт списка приложений",
-    importAppListDesc = "Вставьте список NekoBox: 1-я строка 'false' (Только выбранные) или 'true' (Обходить выбранные), далее пакеты по одному на строку.",
-    fromClipboard = "Из буфера",
-    merge = "Объединить",
-    replace = "Заменить",
-
-    engineRuntimeTitle = "Движок Xray-core",
-    libv2rayLinked = "LIBV2RAY ПОДКЛЮЧЁН",
-    configTunReady = "CONFIG + TUN ГОТОВ",
-    realityKeygenTitle = "Генератор ключей REALITY X25519",
-    regenerate = "Обновить",
-    privateKeyServer = "Приватный ключ (Сервер)",
-    publicKeyPbk = "Публичный ключ (pbk)",
-    shortIdSid = "Short ID (sid)",
-    copyServerRealityJson = "Копировать серверный REALITY config.json",
-    sniProbeTitle = "Проверка SNI для REALITY",
-    sniProbeDesc = "Проверьте поддержку TLSv1.3 и HTTP/2 у домена перед использованием в качестве REALITY dest / serverName.",
-    domainPort443 = "Домен (порт 443)",
-    probeBtn = "Проверить",
-    probeGood = "ПОДХОДИТ (TLSv1.3 поддерживается)",
-    probeUnsuitable = "НЕ ПОДХОДИТ (нужен TLSv1.3)",
-    logsTitle = "Журнал работы Xray",
-    clearLogs = "Очистить логи",
-
-    settingsTitle = "Настройки Xray",
-    languageTitle = "Язык интерфейса",
-    languageSubtitle = "Выберите русский, английский или системный язык",
-    languageSystem = "Системный",
-    languageEnglish = "English",
-    languageRussian = "Русский",
-    serviceModeTitle = "Режим работы",
-    darkThemeTitle = "Тёмная кибер-тема",
-    darkThemeSubtitle = "Обсидианово-бирюзовый интерфейс Wired",
-    perAppSettingsTitle = "Выбор приложений (Per-App Proxy)",
-    inboundsTunTitle = "Входящие порты и TUN",
-    socks5Port = "SOCKS5",
-    httpPort = "HTTP",
-    ipv6StrategyTitle = "Стратегия IPv6",
-    dnsSniffingTitle = "DNS и сниффинг трафика",
-    remoteDnsLabel = "Удалённый DNS (DoH / IP)",
-    directDnsLabel = "Прямой DNS (Direct)",
-    bypassLanTitle = "Обход локальной сети (LAN)",
-    bypassLanSubtitle = "Пускать geoip:private напрямую мимо туннеля",
-    sniffingTitle = "Сниффинг трафика (Sniffing)",
-    sniffingSubtitle = "Определять домены HTTP / TLS / QUIC для роутинга",
-    routeOnlyTitle = "Только роутинг (Route Only)",
-    routeOnlySubtitle = "Не перезаписывать IP назначения (полезно для REALITY)",
-    fragmentSectionTitle = "Фрагментация TLS и безопасность",
-    enableFragmentTitle = "Включить TLS Hello Fragment",
-    enableFragmentSubtitle = "Дробит пакет TLS ClientHello через outbound fragment",
-    lengthLabel = "Длина",
-    intervalLabel = "Интервал (мс)",
-    allowInsecureGlobalTitle = "Разрешать небезопасный TLS",
-    allowInsecureGlobalSubtitle = "Отключить проверку сертификатов TLS (не влияет на REALITY)",
-    aboutDesc = "Портировано с NekoBoxForAndroid на Xray-core с нативной поддержкой VLESS, REALITY, XTLS-Vision, XHTTP и SSH.",
-
-    newProfileTitle = "Новый профиль Xray",
-    editProfileTitle = "Редактирование профиля",
-    protocolLabel = "Протокол",
-    profileNameLabel = "Название профиля",
-    serverAddressLabel = "Адрес сервера",
-    portLabel = "Порт",
-    authTypeLabel = "Тип аутентификации",
-    usernameLabel = "Имя пользователя",
-    passwordLabel = "Пароль",
-    privateKeyLabel = "Приватный ключ (PEM / OpenSSH)",
-    passphraseOptionalLabel = "Парольная фраза ключа (необязательно)",
-    publicKeyOptionalLabel = "Публичный ключ сервера (необязательно)",
-    transportNetworkLabel = "Транспорт",
-    transportSecurityLabel = "Безопасность транспорта",
-    realitySettingsTitle = "Настройки Xray REALITY",
-    tlsSettingsTitle = "Настройки TLS",
-    probeRealitySniBtn = "Проверить поддержку TLSv1.3 у SNI",
-    enableMuxTitle = "Включить Xray Mux",
-    enableMuxSubtitle = "Автоматически отключается при активном XTLS Vision",
-    validationChecksTitle = "Проверка конфигурации Xray",
-    saveProfileBtn = "Сохранить профиль",
-    validConfigBanner = "Конфигурация Xray-core корректна",
-    tapQrFullscreen = "Нажмите на QR-код для открытия во весь экран",
-    qrTooLarge = "URI слишком длинный для QR-кода. Скопируйте ссылку кнопкой ниже.",
-    copyUriBtn = "Копировать URI",
-    scannerTitle = "Сканировать QR-код",
-    scannerPermissionPrompt = "Нужен доступ к камере для сканирования QR-кода, либо выберите скриншот из галереи.",
-    allowCameraBtn = "Разрешить камеру",
-    fromGalleryBtn = "Из галереи",
-    scanImageBtn = "Из галереи",
-    torchOnBtn = "Фонарик",
-    torchOffBtn = "Выкл. фонарик",
-    qrNotFoundInImage = "QR-код на выбранном изображении не найден.",
-
-    switchedProfilePrefix = "Переподключено на",
-    widgetNoProfileTitle = "Профиль не выбран",
-    widgetNoProfileSubtitle = "Откройте NekoXray и добавьте узел",
-    widgetTapToConnect = "Нажмите для подключения",
-    widgetsSectionTitle = "Виджеты и шторка (трей)",
-    trayWidgetTitle = "Виджет в трее уведомлений",
-    trayWidgetSubtitle = "Закрепляет быстрое управление и смену узла в шторке уведомлений",
-    pinStatusWidgetBtn = "Виджет 4×2 на рабочий стол",
-    pinCompactWidgetBtn = "Мини-виджет 2×1",
-    pinMiniWidgetBtn = "Виджет 1×1 (один блок)",
-    miniWidgetOn = "ВКЛ",
-    miniWidgetOff = "ВЫКЛ",
-    pinWidgetSentNotice = "Запрос на добавление виджета отправлен лаунчеру.",
-    pinWidgetUnsupportedNotice = "Лаунчер не поддерживает авто-добавление. Удерживайте рабочий стол → Виджеты → NekoXray.",
-    quickSettingsTileHint = "Совет: также можно вынести отдельную плитку NekoXray в шторку быстрых настроек (опустите шторку → Изменить).",
-)
-
-fun resolveAppStrings(language: AppLanguage, systemLanguageCode: String = Locale.getDefault().language): AppStrings {
-    val useRussian = when (language) {
-        AppLanguage.RU -> true
-        AppLanguage.EN -> false
-        AppLanguage.SYSTEM -> systemLanguageCode.equals("ru", ignoreCase = true)
+fun resolveAppStrings(
+    language: AppLanguage,
+    systemLanguageCode: String = Locale.getDefault().language,
+    systemScriptOrCountry: String = "${Locale.getDefault().script}_${Locale.getDefault().country}",
+): AppStrings = when (language) {
+    AppLanguage.EN -> EnglishStrings
+    AppLanguage.RU -> RussianStrings
+    AppLanguage.ZH_CN -> SimplifiedChineseStrings
+    AppLanguage.ZH_TW -> TraditionalChineseStrings
+    AppLanguage.FA -> PersianStrings
+    AppLanguage.ES -> SpanishStrings
+    AppLanguage.SYSTEM -> when {
+        systemLanguageCode.equals("ru", ignoreCase = true) -> RussianStrings
+        systemLanguageCode.equals("fa", ignoreCase = true) -> PersianStrings
+        systemLanguageCode.equals("es", ignoreCase = true) -> SpanishStrings
+        systemLanguageCode.equals("zh", ignoreCase = true) -> {
+            val tag = systemScriptOrCountry.lowercase()
+            if (tag.contains("hant") || tag.contains("tw") || tag.contains("hk") || tag.contains("mo")) {
+                TraditionalChineseStrings
+            } else {
+                SimplifiedChineseStrings
+            }
+        }
+        else -> EnglishStrings
     }
-    return if (useRussian) RussianStrings else EnglishStrings
 }
 
 val LocalAppStrings = staticCompositionLocalOf { EnglishStrings }

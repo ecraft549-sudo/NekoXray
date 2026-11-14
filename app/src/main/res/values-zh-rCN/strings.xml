@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">NekoXray</string>
+    <string name="vpn_service_label">NekoXray VPN 隧道</string>
+    <string name="tile_service_label">NekoXray</string>
+    <string name="notification_channel_name">NekoXray VPN 状态</string>
+    <string name="notification_channel_desc">Xray 隧道运行时的常驻状态通知</string>
+    <string name="action_disconnect">断开</string>
+    <string name="action_reconnect">重连</string>
+    <string name="nav_profiles">配置</string>
+    <string name="nav_groups">分组</string>
+    <string name="nav_routing">路由</string>
+    <string name="nav_tools">工具</string>
+    <string name="nav_settings">设置</string>
+    <string name="core_version_badge">Xray-core v26.10.31 · REALITY</string>
+    <string name="empty_profiles_title">暂无 Xray 配置</string>
+    <string name="empty_profiles_subtitle">从剪贴板导入 vless:// REALITY 链接、添加订阅分组或手动创建配置。</string>
+    <string name="error_invalid_uri">无法解析代理链接。支持格式：vless://、vmess://、trojan://、ss://、socks://、ssh://、wg://</string>
+    <string name="status_widget_label">NekoXray 状态</string>
+    <string name="status_widget_description">实时 VPN 状态、当前 REALITY 节点、网速统计与快捷开关</string>
+    <string name="compact_widget_label">NekoXray 开关</string>
+    <string name="compact_widget_description">紧凑的一键 VPN 连接/断开小组件</string>
+    <string name="mini_widget_label">NekoXray 1×1</string>
+    <string name="mini_widget_description">单格 1×1 VPN 开关按钮</string>
+    <string name="widget_toggle_vpn">切换 VPN 连接</string>
+    <string name="widget_next_node">切换到下一个节点</string>
+    <string name="tray_widget_channel_name">NekoXray 通知栏快捷小组件</string>
+    <string name="tray_widget_channel_desc">通知栏常驻快捷控制小组件</string>
+    <string name="action_next_node">下一节点</string>
+</resources>

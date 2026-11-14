@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">NekoXray</string>
+    <string name="vpn_service_label">Túnel VPN NekoXray</string>
+    <string name="tile_service_label">NekoXray</string>
+    <string name="notification_channel_name">Estado VPN NekoXray</string>
+    <string name="notification_channel_desc">Notificación persistente mientras el túnel Xray esté activo</string>
+    <string name="action_disconnect">Desconectar</string>
+    <string name="action_reconnect">Reconectar</string>
+    <string name="nav_profiles">Perfiles</string>
+    <string name="nav_groups">Grupos</string>
+    <string name="nav_routing">Rutas</string>
+    <string name="nav_tools">Herramientas</string>
+    <string name="nav_settings">Ajustes</string>
+    <string name="core_version_badge">Xray-core v26.10.31 · REALITY</string>
+    <string name="empty_profiles_title">Aún no hay perfiles Xray</string>
+    <string name="empty_profiles_subtitle">Importa un enlace vless:// REALITY del portapapeles, añade un grupo o crea un perfil manualmente.</string>
+    <string name="error_invalid_uri">No se pudo analizar la URI. Soportados: vless://, vmess://, trojan://, ss://, socks://, ssh://, wg://</string>
+    <string name="status_widget_label">Estado NekoXray</string>
+    <string name="status_widget_description">Estado VPN en vivo, nodo REALITY activo, velocidad y control rápido</string>
+    <string name="compact_widget_label">Interruptor NekoXray</string>
+    <string name="compact_widget_description">Interruptor compacto de 1 toque para conectar/desconectar VPN</string>
+    <string name="mini_widget_label">NekoXray 1×1</string>
+    <string name="mini_widget_description">Botón VPN de bloque único 1×1 con indicador de estado</string>
+    <string name="widget_toggle_vpn">Alternar conexión VPN</string>
+    <string name="widget_next_node">Cambiar al siguiente nodo</string>
+    <string name="tray_widget_channel_name">Widget rápido en notificaciones NekoXray</string>
+    <string name="tray_widget_channel_desc">Widget opcional de control rápido fijado en la bandeja de notificaciones</string>
+    <string name="action_next_node">Siguiente nodo</string>
+</resources>

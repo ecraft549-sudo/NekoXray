@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">NekoXray</string>
+    <string name="vpn_service_label">تونل VPN NekoXray</string>
+    <string name="tile_service_label">NekoXray</string>
+    <string name="notification_channel_name">وضعیت VPN NekoXray</string>
+    <string name="notification_channel_desc">اعلان دائمی وضعیت هنگام فعال بودن تونل Xray</string>
+    <string name="action_disconnect">قطع اتصال</string>
+    <string name="action_reconnect">اتصال مجدد</string>
+    <string name="nav_profiles">پروفایل‌ها</string>
+    <string name="nav_groups">گروه‌ها</string>
+    <string name="nav_routing">مسیریابی</string>
+    <string name="nav_tools">ابزارها</string>
+    <string name="nav_settings">تنظیمات</string>
+    <string name="core_version_badge">Xray-core v26.10.31 · REALITY</string>
+    <string name="empty_profiles_title">هنوز پروفایلی وجود ندارد</string>
+    <string name="empty_profiles_subtitle">لینک vless:// REALITY را از کلیپ‌بورد وارد کنید یا پروفایل جدید بسازید.</string>
+    <string name="error_invalid_uri">امکان پردازش لینک وجود ندارد. فرمت‌های پشتیبانی‌شده: vless://, vmess://, trojan://, ss://, socks://, ssh://, wg://</string>
+    <string name="status_widget_label">وضعیت NekoXray</string>
+    <string name="status_widget_description">وضعیت زنده VPN، سرور REALITY فعال، سرعت لحظه‌ای و کلید سریع</string>
+    <string name="compact_widget_label">کلید NekoXray</string>
+    <string name="compact_widget_description">کلید فشرده اتصال/قطع VPN با یک لمس</string>
+    <string name="mini_widget_label">NekoXray 1×1</string>
+    <string name="mini_widget_description">دکمه تک‌خانه‌ای 1×1 روشن/خاموش VPN</string>
+    <string name="widget_toggle_vpn">تغییر وضعیت اتصال VPN</string>
+    <string name="widget_next_node">تغییر به سرور بعدی</string>
+    <string name="tray_widget_channel_name">ویجت سریع NekoXray در نوار اعلان</string>
+    <string name="tray_widget_channel_desc">ویجت کنترل سریع دائمی در کشوی اعلان‌ها</string>
+    <string name="action_next_node">سرور بعدی</string>
+</resources>

@@ -727,6 +727,48 @@ class XrayRealityTest {
             systemLanguageCode = "de",
         )
         assertEquals("Profiles", systemEn.navProfiles)
+
+        val zhCn = com.example.ui.i18n.resolveAppStrings(com.example.core.model.AppLanguage.ZH_CN)
+        assertEquals("配置", zhCn.navProfiles)
+        assertEquals(false, zhCn.isRtl)
+
+        val zhTw = com.example.ui.i18n.resolveAppStrings(com.example.core.model.AppLanguage.ZH_TW)
+        assertEquals("設定檔", zhTw.navProfiles)
+        assertEquals(false, zhTw.isRtl)
+
+        val fa = com.example.ui.i18n.resolveAppStrings(com.example.core.model.AppLanguage.FA)
+        assertEquals("پروفایل‌ها", fa.navProfiles)
+        assertEquals(true, fa.isRtl)
+
+        val es = com.example.ui.i18n.resolveAppStrings(com.example.core.model.AppLanguage.ES)
+        assertEquals("Perfiles", es.navProfiles)
+        assertEquals(false, es.isRtl)
+
+        val systemZhTw = com.example.ui.i18n.resolveAppStrings(
+            language = com.example.core.model.AppLanguage.SYSTEM,
+            systemLanguageCode = "zh",
+            systemScriptOrCountry = "Hant_TW",
+        )
+        assertEquals("設定檔", systemZhTw.navProfiles)
+
+        val systemZhCn = com.example.ui.i18n.resolveAppStrings(
+            language = com.example.core.model.AppLanguage.SYSTEM,
+            systemLanguageCode = "zh",
+            systemScriptOrCountry = "Hans_CN",
+        )
+        assertEquals("配置", systemZhCn.navProfiles)
+
+        val systemFa = com.example.ui.i18n.resolveAppStrings(
+            language = com.example.core.model.AppLanguage.SYSTEM,
+            systemLanguageCode = "fa",
+        )
+        assertEquals(true, systemFa.isRtl)
+
+        val systemEs = com.example.ui.i18n.resolveAppStrings(
+            language = com.example.core.model.AppLanguage.SYSTEM,
+            systemLanguageCode = "es",
+        )
+        assertEquals("Perfiles", systemEs.navProfiles)
     }
 
     @Test

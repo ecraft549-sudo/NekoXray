@@ -12,6 +12,7 @@
 ![Kotlin](https://img.shields.io/badge/Kotlin-2.2-7F52FF?style=flat-square&logo=kotlin&logoColor=white)
 ![Jetpack Compose](https://img.shields.io/badge/Jetpack%20Compose-Material%203-4285F4?style=flat-square&logo=jetpackcompose&logoColor=white)
 ![Xray-core](https://img.shields.io/badge/Xray--core-v26.10.31-38BDF8?style=flat-square)
+[![License: MIT](https://img.shields.io/badge/License-MIT-34D399?style=flat-square)](LICENSE)
 
 </div>
 
@@ -117,3 +118,9 @@ Push a tag (`v*`, e.g. `v1.0.0`) or run the **Release Multi-ABI APKs** workflow 
 The `docs/` directory includes a single-page landing website (`docs/index.html`) that automatically fetches the latest release from GitHub Releases, detects the visitor's Android CPU ABI (`arm64-v8a`, `armeabi-v7a`, `x86_64`, `x86`, `universal`), displays release notes & `SHA256SUMS.txt`, and supports instant **EN / RU** switching.
 
 To publish it on GitHub Pages: open **Settings → Pages → Build and deployment → Source: GitHub Actions** (handled automatically by `.github/workflows/pages.yml`), or select **Deploy from a branch → `/docs`**.
+
+---
+
+## License
+
+This project is licensed under the [MIT License](LICENSE).
