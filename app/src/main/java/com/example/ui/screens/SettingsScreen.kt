@@ -1,5 +1,10 @@
 package com.example.ui.screens
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -19,11 +24,14 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material.icons.filled.Translate
+import androidx.compose.material.icons.filled.Widgets
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -32,15 +40,18 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import com.example.R
 import com.example.core.model.AppLanguage
 import com.example.core.model.IPv6Mode
 import com.example.core.model.ServiceMode
 import com.example.core.model.XRAY_CORE_VERSION
 import com.example.core.model.XraySettings
+import com.example.core.widget.NekoWidgetManager
 import com.example.ui.i18n.LocalAppStrings
 import com.example.ui.viewmodel.NekoUiState
 
@@ -51,9 +62,19 @@ fun SettingsScreen(
     onUpdateSettings: ((XraySettings) -> XraySettings) -> Unit,
     onOpenAppManager: () -> Unit,
     modifier: Modifier = Modifier,
+    onNotice: (String) -> Unit = {},
 ) {
     val s = state.settings
     val strings = LocalAppStrings.current
+    val context = LocalContext.current
+
+    val notificationPermLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        if (granted) {
+            onUpdateSettings { it.copy(trayWidgetEnabled = true) }
+        }
+    }
 
     LazyColumn(
         modifier = modifier
@@ -157,6 +178,83 @@ fun SettingsScreen(
                         )
                     }
                     Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null)
+                }
+            }
+        }
+
+        // Home Screen Widgets & Quick Tray Widget
+        item {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Widgets, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                        Spacer(Modifier.width(8.dp))
+                        Text(strings.widgetsSectionTitle, style = MaterialTheme.typography.titleMedium)
+                    }
+
+                    SettingToggle(
+                        title = strings.trayWidgetTitle,
+                        subtitle = strings.trayWidgetSubtitle,
+                        checked = s.trayWidgetEnabled,
+                        onCheckedChange = { enabled ->
+                            if (enabled && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                                val hasPerm = ContextCompat.checkSelfPermission(
+                                    context,
+                                    Manifest.permission.POST_NOTIFICATIONS,
+                                ) == PackageManager.PERMISSION_GRANTED
+                                if (!hasPerm) {
+                                    notificationPermLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                                } else {
+                                    onUpdateSettings { it.copy(trayWidgetEnabled = true) }
+                                }
+                            } else {
+                                onUpdateSettings { it.copy(trayWidgetEnabled = enabled) }
+                            }
+                        },
+                        toggleTestTag = "tray_widget_toggle",
+                    )
+
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        FilledTonalButton(
+                            onClick = {
+                                val ok = NekoWidgetManager.requestPinStatusWidget(context)
+                                onNotice(if (ok) strings.pinWidgetSentNotice else strings.pinWidgetUnsupportedNotice)
+                            },
+                            modifier = Modifier.testTag("pin_status_widget_btn"),
+                        ) {
+                            Text(strings.pinStatusWidgetBtn)
+                        }
+                        OutlinedButton(
+                            onClick = {
+                                val ok = NekoWidgetManager.requestPinCompactWidget(context)
+                                onNotice(if (ok) strings.pinWidgetSentNotice else strings.pinWidgetUnsupportedNotice)
+                            },
+                            modifier = Modifier.testTag("pin_compact_widget_btn"),
+                        ) {
+                            Text(strings.pinCompactWidgetBtn)
+                        }
+                        OutlinedButton(
+                            onClick = {
+                                val ok = NekoWidgetManager.requestPinMiniWidget(context)
+                                onNotice(if (ok) strings.pinWidgetSentNotice else strings.pinWidgetUnsupportedNotice)
+                            },
+                            modifier = Modifier.testTag("pin_mini_widget_btn"),
+                        ) {
+                            Text(strings.pinMiniWidgetBtn)
+                        }
+                    }
+
+                    Text(
+                        text = strings.quickSettingsTileHint,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
             }
         }
@@ -335,6 +433,7 @@ private fun SettingToggle(
     subtitle: String,
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit,
+    toggleTestTag: String? = null,
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -345,6 +444,10 @@ private fun SettingToggle(
             Text(title, style = MaterialTheme.typography.bodyLarge)
             Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        Switch(checked = checked, onCheckedChange = onCheckedChange)
+        Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange,
+            modifier = if (toggleTestTag != null) Modifier.testTag(toggleTestTag) else Modifier,
+        )
     }
 }

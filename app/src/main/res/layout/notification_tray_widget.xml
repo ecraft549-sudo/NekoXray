@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:gravity="center_vertical"
+    android:orientation="horizontal"
+    android:paddingTop="2dp"
+    android:paddingBottom="2dp">
+
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:orientation="vertical"
+        android:paddingEnd="8dp">
+
+        <TextView
+            android:id="@+id/tray_title"
+            style="@style/TextAppearance.Compat.Notification.Title"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:text="NekoXray · Ready" />
+
+        <TextView
+            android:id="@+id/tray_subtitle"
+            style="@style/TextAppearance.Compat.Notification.Info"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:text="Select profile and tap Connect" />
+    </LinearLayout>
+
+    <ImageButton
+        android:id="@+id/tray_btn_next"
+        android:layout_width="40dp"
+        android:layout_height="40dp"
+        android:layout_marginEnd="6dp"
+        android:background="@drawable/widget_next_btn_bg"
+        android:contentDescription="@string/widget_next_node"
+        android:padding="9dp"
+        android:scaleType="centerInside"
+        android:src="@drawable/ic_widget_next" />
+
+    <ImageButton
+        android:id="@+id/tray_btn_toggle"
+        android:layout_width="40dp"
+        android:layout_height="40dp"
+        android:background="@drawable/widget_power_btn_idle"
+        android:contentDescription="@string/widget_toggle_vpn"
+        android:padding="9dp"
+        android:scaleType="centerInside"
+        android:src="@drawable/ic_widget_power" />
+</LinearLayout>

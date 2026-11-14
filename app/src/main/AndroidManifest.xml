@@ -79,6 +79,46 @@
                 <action android:name="android.service.quicksettings.action.QS_TILE" />
             </intent-filter>
         </service>
+
+        <receiver
+            android:name=".core.widget.NekoStatusWidgetProvider"
+            android:exported="true"
+            android:label="@string/status_widget_label">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/nekoxray_status_widget_info" />
+        </receiver>
+
+        <receiver
+            android:name=".core.widget.NekoCompactWidgetProvider"
+            android:exported="true"
+            android:label="@string/compact_widget_label">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/nekoxray_compact_widget_info" />
+        </receiver>
+
+        <receiver
+            android:name=".core.widget.NekoMiniWidgetProvider"
+            android:exported="true"
+            android:label="@string/mini_widget_label">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/nekoxray_mini_widget_info" />
+        </receiver>
+
+        <receiver
+            android:name=".core.widget.NekoWidgetActionReceiver"
+            android:exported="false" />
     </application>
 
 </manifest>

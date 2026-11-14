@@ -20,6 +20,7 @@ class NekoXrayApp : Application() {
         super.onCreate()
         appScope.launch {
             repository.ensureDefaults()
+            com.example.core.widget.NekoWidgetManager.refreshAll(this@NekoXrayApp)
         }
     }
 }

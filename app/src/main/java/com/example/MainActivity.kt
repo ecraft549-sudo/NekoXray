@@ -99,6 +99,8 @@ class MainActivity : ComponentActivity() {
 
     private val viewModel: NekoViewModel by viewModels()
 
+    private var autoConnectSignal = mutableStateOf(false)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -107,25 +109,37 @@ class MainActivity : ComponentActivity() {
         ) {
             runCatching { stopService(Intent(this, XrayVpnService::class.java)) }
         }
-        handleIncomingUri(intent)
+        handleIncomingIntent(intent)
         setContent {
-            NekoXrayRoot(viewModel = viewModel)
+            NekoXrayRoot(
+                viewModel = viewModel,
+                autoConnectRequested = autoConnectSignal.value,
+                onConsumeAutoConnect = { autoConnectSignal.value = false },
+            )
         }
     }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        handleIncomingUri(intent)
+        handleIncomingIntent(intent)
     }
 
-    private fun handleIncomingUri(intent: Intent?) {
+    private fun handleIncomingIntent(intent: Intent?) {
+        if (intent?.getBooleanExtra(com.example.core.widget.NekoWidgetManager.EXTRA_AUTO_CONNECT, false) == true) {
+            intent.removeExtra(com.example.core.widget.NekoWidgetManager.EXTRA_AUTO_CONNECT)
+            autoConnectSignal.value = true
+        }
         val uriString = intent?.dataString ?: return
         viewModel.importText(uriString)
     }
 }
 
 @Composable
-private fun NekoXrayRoot(viewModel: NekoViewModel) {
+private fun NekoXrayRoot(
+    viewModel: NekoViewModel,
+    autoConnectRequested: Boolean = false,
+    onConsumeAutoConnect: () -> Unit = {},
+) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val navController = rememberNavController()
     val snackbarHostState = remember { SnackbarHostState() }
@@ -189,6 +203,17 @@ private fun NekoXrayRoot(viewModel: NekoViewModel) {
             }
         } else {
             viewModel.toggleConnection { vpnIntent -> vpnPermissionLauncher.launch(vpnIntent) }
+        }
+    }
+
+    LaunchedEffect(autoConnectRequested, state.profiles) {
+        if (autoConnectRequested && state.profiles.isNotEmpty()) {
+            onConsumeAutoConnect()
+            val isRunning = state.engineState.status == TunnelStatus.CONNECTED ||
+                state.engineState.status == TunnelStatus.CONNECTING
+            if (!isRunning) {
+                onConnectClick()
+            }
         }
     }
 
@@ -362,6 +387,9 @@ private fun NekoXrayRoot(viewModel: NekoViewModel) {
                                     onUpdateSettings = viewModel::updateSettings,
                                     onOpenAppManager = {
                                         navController.navigate(NekoRoute.AppManager)
+                                    },
+                                    onNotice = { msg ->
+                                        scope.launch { snackbarHostState.showSnackbar(msg) }
                                     },
                                 )
                             }

@@ -15,4 +15,15 @@
     <string name="empty_profiles_title">No Xray Profiles Yet</string>
     <string name="empty_profiles_subtitle">Import a vless:// REALITY link from clipboard, add a subscription group, or create a profile manually.</string>
     <string name="error_invalid_uri">Could not parse proxy URI. Supported: vless://, vmess://, trojan://, ss://, socks://, ssh://, wg://</string>
+    <string name="status_widget_label">NekoXray Status</string>
+    <string name="status_widget_description">Live VPN status, active REALITY node, speed telemetry, and quick toggle</string>
+    <string name="compact_widget_label">NekoXray Switch</string>
+    <string name="compact_widget_description">Compact 1-tap VPN connect/disconnect switch with node status</string>
+    <string name="mini_widget_label">NekoXray 1×1</string>
+    <string name="mini_widget_description">Single-block 1×1 VPN power button with status glow</string>
+    <string name="widget_toggle_vpn">Toggle VPN connection</string>
+    <string name="widget_next_node">Switch to next profile</string>
+    <string name="tray_widget_channel_name">NekoXray Quick Tray Widget</string>
+    <string name="tray_widget_channel_desc">Optional persistent quick control widget in the notification tray</string>
+    <string name="action_next_node">Next Node</string>
 </resources>

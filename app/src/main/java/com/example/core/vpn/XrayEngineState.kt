@@ -29,6 +29,10 @@ data class EngineRuntimeState(
     val activeProtocolLabel: String = "",
     val isRealityActive: Boolean = false,
     val connectedSinceMs: Long? = null,
+    val upSpeedBps: Long = 0L,
+    val downSpeedBps: Long = 0L,
+    val totalUpBytes: Long = 0L,
+    val totalDownBytes: Long = 0L,
     val activeConfigJson: String = "",
     val nativeCoreVersion: String? = null,
     val isNativeCoreLinked: Boolean = false,
@@ -70,6 +74,10 @@ object XrayEngineState {
         error: String? = null,
     ) {
         _state.update { current ->
+            val switchedProfile = profileId != null && profileId != current.activeProfileId
+            val resetMetrics = status == TunnelStatus.IDLE ||
+                status == TunnelStatus.ERROR ||
+                (status == TunnelStatus.CONNECTING && switchedProfile)
             current.copy(
                 status = status,
                 activeProfileId = profileId,
@@ -77,12 +85,33 @@ object XrayEngineState {
                 activeProtocolLabel = protocolLabel,
                 isRealityActive = isReality,
                 connectedSinceMs = when (status) {
-                    TunnelStatus.CONNECTED -> current.connectedSinceMs ?: System.currentTimeMillis()
+                    TunnelStatus.CONNECTED -> if (switchedProfile) System.currentTimeMillis() else (current.connectedSinceMs ?: System.currentTimeMillis())
                     TunnelStatus.IDLE, TunnelStatus.ERROR -> null
-                    TunnelStatus.CONNECTING -> current.connectedSinceMs
+                    TunnelStatus.CONNECTING -> if (switchedProfile) null else current.connectedSinceMs
                 },
+                upSpeedBps = if (resetMetrics) 0L else current.upSpeedBps,
+                downSpeedBps = if (resetMetrics) 0L else current.downSpeedBps,
+                totalUpBytes = if (resetMetrics) 0L else current.totalUpBytes,
+                totalDownBytes = if (resetMetrics) 0L else current.totalDownBytes,
                 activeConfigJson = configJson,
                 lastError = error,
+            )
+        }
+    }
+
+    fun updateTraffic(
+        upSpeedBps: Long,
+        downSpeedBps: Long,
+        totalUpBytes: Long,
+        totalDownBytes: Long,
+    ) {
+        _state.update { current ->
+            if (current.status != TunnelStatus.CONNECTED) return@update current
+            current.copy(
+                upSpeedBps = upSpeedBps,
+                downSpeedBps = downSpeedBps,
+                totalUpBytes = totalUpBytes,
+                totalDownBytes = totalDownBytes,
             )
         }
     }

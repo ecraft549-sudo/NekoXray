@@ -42,6 +42,7 @@ class SettingsDataStore(private val context: Context) {
         val LOG_LEVEL = stringPreferencesKey("log_level")
         val DARK_THEME = booleanPreferencesKey("dark_theme")
         val APP_LANGUAGE = stringPreferencesKey("app_language")
+        val TRAY_WIDGET_ENABLED = booleanPreferencesKey("tray_widget_enabled")
         val PER_APP_MODE = stringPreferencesKey("per_app_mode")
         val PER_APP_PACKAGES = stringSetPreferencesKey("per_app_packages")
         val SELECTED_PROFILE_ID = longPreferencesKey("selected_profile_id")
@@ -74,6 +75,7 @@ class SettingsDataStore(private val context: Context) {
         appLanguage = runCatching {
             AppLanguage.valueOf(prefs[Keys.APP_LANGUAGE] ?: AppLanguage.SYSTEM.name)
         }.getOrDefault(AppLanguage.SYSTEM),
+        trayWidgetEnabled = prefs[Keys.TRAY_WIDGET_ENABLED] ?: false,
         perAppMode = runCatching {
             PerAppProxyMode.valueOf(prefs[Keys.PER_APP_MODE] ?: PerAppProxyMode.ALL.name)
         }.getOrDefault(PerAppProxyMode.ALL),
@@ -123,6 +125,7 @@ class SettingsDataStore(private val context: Context) {
             prefs[Keys.LOG_LEVEL] = updated.logLevel
             prefs[Keys.DARK_THEME] = updated.darkTheme
             prefs[Keys.APP_LANGUAGE] = updated.appLanguage.name
+            prefs[Keys.TRAY_WIDGET_ENABLED] = updated.trayWidgetEnabled
             prefs[Keys.PER_APP_MODE] = updated.perAppMode.name
             prefs[Keys.PER_APP_PACKAGES] = updated.perAppPackages
         }

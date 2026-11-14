@@ -16,4 +16,15 @@
     <string name="empty_profiles_title">Пока нет профилей Xray</string>
     <string name="empty_profiles_subtitle">Вставьте ссылку vless:// REALITY из буфера обмена, отсканируйте QR-код или создайте профиль вручную.</string>
     <string name="error_invalid_uri">Не удалось разобрать ссылку. Поддерживаются: vless://, vmess://, trojan://, ss://, socks://, ssh://, wg://</string>
+    <string name="status_widget_label">NekoXray Статус</string>
+    <string name="status_widget_description">Статус VPN, активный узел REALITY, скорость трафика и быстрое управление</string>
+    <string name="compact_widget_label">NekoXray Переключатель</string>
+    <string name="compact_widget_description">Компактная кнопка включения VPN в одно касание</string>
+    <string name="mini_widget_label">NekoXray 1×1</string>
+    <string name="mini_widget_description">Кнопка VPN в один блок (1×1) с индикатором статуса</string>
+    <string name="widget_toggle_vpn">Включить или отключить VPN</string>
+    <string name="widget_next_node">Следующий профиль</string>
+    <string name="tray_widget_channel_name">Быстрый виджет в трее NekoXray</string>
+    <string name="tray_widget_channel_desc">Закреплённый виджет быстрого управления VPN в шторке уведомлений</string>
+    <string name="action_next_node">Следующий узел</string>
 </resources>

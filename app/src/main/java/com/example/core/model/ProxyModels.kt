@@ -220,6 +220,7 @@ data class XraySettings(
     val logLevel: String = "warning",
     val darkTheme: Boolean = true,
     val appLanguage: AppLanguage = AppLanguage.SYSTEM,
+    val trayWidgetEnabled: Boolean = false,
     val perAppMode: PerAppProxyMode = PerAppProxyMode.ALL,
     val perAppPackages: Set<String> = emptySet(),
 )

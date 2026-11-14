@@ -186,6 +186,23 @@ data class AppStrings(
     val torchOnBtn: String,
     val torchOffBtn: String,
     val qrNotFoundInImage: String,
+
+    // Widgets & Tray & Reconnect
+    val switchedProfilePrefix: String,
+    val widgetNoProfileTitle: String,
+    val widgetNoProfileSubtitle: String,
+    val widgetTapToConnect: String,
+    val widgetsSectionTitle: String,
+    val trayWidgetTitle: String,
+    val trayWidgetSubtitle: String,
+    val pinStatusWidgetBtn: String,
+    val pinCompactWidgetBtn: String,
+    val pinMiniWidgetBtn: String,
+    val miniWidgetOn: String,
+    val miniWidgetOff: String,
+    val pinWidgetSentNotice: String,
+    val pinWidgetUnsupportedNotice: String,
+    val quickSettingsTileHint: String,
 ) {
     fun serviceModeName(mode: ServiceMode): String = when (mode) {
         ServiceMode.VPN -> if (isRussian) "VPN (TUN)" else "VPN (TUN)"
@@ -398,6 +415,22 @@ val EnglishStrings = AppStrings(
     torchOnBtn = "Torch",
     torchOffBtn = "Torch Off",
     qrNotFoundInImage = "QR code not found in selected image.",
+
+    switchedProfilePrefix = "Reconnected to",
+    widgetNoProfileTitle = "No Profile Selected",
+    widgetNoProfileSubtitle = "Open NekoXray to add a node",
+    widgetTapToConnect = "Tap power to connect",
+    widgetsSectionTitle = "Widgets & Quick Tray",
+    trayWidgetTitle = "Notification Tray Widget",
+    trayWidgetSubtitle = "Keep a quick Connect & Switch widget pinned in the notification shade",
+    pinStatusWidgetBtn = "Add 4×2 Status Widget",
+    pinCompactWidgetBtn = "Add 2×1 Switch Widget",
+    pinMiniWidgetBtn = "Add 1×1 Block Widget",
+    miniWidgetOn = "ON",
+    miniWidgetOff = "OFF",
+    pinWidgetSentNotice = "Launcher prompt opened to add widget to Home screen.",
+    pinWidgetUnsupportedNotice = "Your launcher does not support auto-pinning. Long-press Home screen → Widgets → NekoXray.",
+    quickSettingsTileHint = "Tip: You can also add the NekoXray tile in Android Quick Settings (swipe down twice → Edit).",
 )
 
 val RussianStrings = AppStrings(
@@ -571,6 +604,22 @@ val RussianStrings = AppStrings(
     torchOnBtn = "Фонарик",
     torchOffBtn = "Выкл. фонарик",
     qrNotFoundInImage = "QR-код на выбранном изображении не найден.",
+
+    switchedProfilePrefix = "Переподключено на",
+    widgetNoProfileTitle = "Профиль не выбран",
+    widgetNoProfileSubtitle = "Откройте NekoXray и добавьте узел",
+    widgetTapToConnect = "Нажмите для подключения",
+    widgetsSectionTitle = "Виджеты и шторка (трей)",
+    trayWidgetTitle = "Виджет в трее уведомлений",
+    trayWidgetSubtitle = "Закрепляет быстрое управление и смену узла в шторке уведомлений",
+    pinStatusWidgetBtn = "Виджет 4×2 на рабочий стол",
+    pinCompactWidgetBtn = "Мини-виджет 2×1",
+    pinMiniWidgetBtn = "Виджет 1×1 (один блок)",
+    miniWidgetOn = "ВКЛ",
+    miniWidgetOff = "ВЫКЛ",
+    pinWidgetSentNotice = "Запрос на добавление виджета отправлен лаунчеру.",
+    pinWidgetUnsupportedNotice = "Лаунчер не поддерживает авто-добавление. Удерживайте рабочий стол → Виджеты → NekoXray.",
+    quickSettingsTileHint = "Совет: также можно вынести отдельную плитку NekoXray в шторку быстрых настроек (опустите шторку → Изменить).",
 )
 
 fun resolveAppStrings(language: AppLanguage, systemLanguageCode: String = Locale.getDefault().language): AppStrings {

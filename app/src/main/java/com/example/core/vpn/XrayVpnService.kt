@@ -28,6 +28,7 @@ import com.example.core.model.ProxyProtocol
 import com.example.core.model.RoutingRule
 import com.example.core.model.XRAY_CORE_VERSION
 import com.example.core.model.XraySettings
+import com.example.core.widget.NekoWidgetManager
 import com.example.core.xray.XrayAssetHelper
 import com.example.core.xray.XrayConfigBuilder
 import kotlinx.coroutines.CoroutineScope
@@ -155,6 +156,7 @@ class XrayVpnService : VpnService() {
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val engineMutex = Mutex()
+    private val activeSessionToken = java.util.concurrent.atomic.AtomicLong(0L)
     private var activeStartJob: Job? = null
     private var trafficMonitorJob: Job? = null
     private var lastStartIntent: Intent? = null
@@ -274,6 +276,7 @@ class XrayVpnService : VpnService() {
         perAppPackages: Set<String>,
     ) {
         val profileName = profile.displayTitle()
+        val sessionToken = activeSessionToken.incrementAndGet()
         XrayEngineState.updateStatus(
             status = TunnelStatus.CONNECTING,
             profileId = profile.id,
@@ -282,11 +285,13 @@ class XrayVpnService : VpnService() {
             isReality = profile.isReality,
             configJson = configJson,
         )
+        NekoWidgetManager.refreshAll(this)
         XrayEngineState.appendLog("INFO", "Starting Xray session for '$profileName' ($protocolLabel)...")
 
         activeStartJob?.cancel()
         activeStartJob = serviceScope.launch {
             engineMutex.withLock {
+                if (sessionToken != activeSessionToken.get()) return@withLock
                 runCatching {
                     stopPreviousEnginesOnly()
                 val hasNativeCore = XrayEngineState.state.value.isNativeCoreLinked
@@ -380,6 +385,10 @@ class XrayVpnService : VpnService() {
                         ).also { it.start(serviceScope) }
                     }
 
+                    if (sessionToken != activeSessionToken.get()) {
+                        stopPreviousEnginesOnly()
+                        return@withLock
+                    }
                     XrayEngineState.updateStatus(
                         status = TunnelStatus.CONNECTED,
                         profileId = profile.id,
@@ -388,6 +397,7 @@ class XrayVpnService : VpnService() {
                         isReality = profile.isReality,
                         configJson = effectiveConfigJson,
                     )
+                    NekoWidgetManager.refreshAll(this@XrayVpnService)
                 } else {
                     val effectiveConfigJson = if (profile.protocol == ProxyProtocol.SSH) {
                         val bridge = SshTunnelBridge(profile = profile, vpnService = this@XrayVpnService)
@@ -417,6 +427,10 @@ class XrayVpnService : VpnService() {
                         ).also { it.start(serviceScope) }
                     }
 
+                    if (sessionToken != activeSessionToken.get()) {
+                        stopPreviousEnginesOnly()
+                        return@withLock
+                    }
                     XrayEngineState.updateStatus(
                         status = TunnelStatus.CONNECTED,
                         profileId = profile.id,
@@ -425,21 +439,34 @@ class XrayVpnService : VpnService() {
                         isReality = profile.isReality,
                         configJson = effectiveConfigJson,
                     )
+                    NekoWidgetManager.refreshAll(this@XrayVpnService)
                 }
-                startTrafficMonitor(profile = profile, profileName = profileName, protocolLabel = protocolLabel, proxyOnly = proxyOnly)
-            }.onFailure { err ->
-                XrayEngineState.appendLog("ERROR", "Tunnel failed: ${err.message ?: err.javaClass.simpleName}")
-                XrayEngineState.updateStatus(
-                    status = TunnelStatus.ERROR,
-                    error = err.message ?: "VPN start failed",
+                startTrafficMonitor(
+                    sessionToken = sessionToken,
+                    profile = profile,
+                    profileName = profileName,
+                    protocolLabel = protocolLabel,
+                    proxyOnly = proxyOnly,
                 )
-                stopTunnelInternal()
+            }.onFailure { err ->
+                if (sessionToken == activeSessionToken.get()) {
+                    XrayEngineState.appendLog("ERROR", "Tunnel failed: ${err.message ?: err.javaClass.simpleName}")
+                    XrayEngineState.updateStatus(
+                        status = TunnelStatus.ERROR,
+                        error = err.message ?: "VPN start failed",
+                    )
+                    stopTunnelInternal()
+                    NekoWidgetManager.refreshAll(this@XrayVpnService)
+                } else {
+                    stopPreviousEnginesOnly()
+                }
             }
             }
         }
     }
 
     private fun startTrafficMonitor(
+        sessionToken: Long,
         profile: ProxyProfile,
         profileName: String,
         protocolLabel: String,
@@ -468,8 +495,11 @@ class XrayVpnService : VpnService() {
                 totalDownBytes = 0L,
             )
 
-            while (isActive) {
+            var tickCount = 0
+            while (isActive && sessionToken == activeSessionToken.get()) {
                 delay(1000L)
+                if (sessionToken != activeSessionToken.get()) break
+                tickCount++
                 val now = System.currentTimeMillis()
                 val xrayStats = runCatching {
                     coreControllerInstance?.takeIf { it.isRunning }?.queryAllOutboundTrafficStats()
@@ -490,6 +520,13 @@ class XrayVpnService : VpnService() {
                 prevDown = totalDown
                 prevAt = now
 
+                XrayEngineState.updateTraffic(
+                    upSpeedBps = upBps,
+                    downSpeedBps = downBps,
+                    totalUpBytes = totalUp,
+                    totalDownBytes = totalDown,
+                )
+
                 updateLiveNotification(
                     profile = profile,
                     profileName = profileName,
@@ -501,6 +538,10 @@ class XrayVpnService : VpnService() {
                     totalUpBytes = totalUp,
                     totalDownBytes = totalDown,
                 )
+
+                if (tickCount % 2 == 0) {
+                    NekoWidgetManager.refreshAll(this@XrayVpnService)
+                }
             }
         }
     }
@@ -583,9 +624,20 @@ class XrayVpnService : VpnService() {
     }
 
     private fun stopTunnel() {
+        val stopToken = activeSessionToken.incrementAndGet()
+        activeStartJob?.cancel()
+        activeStartJob = null
         XrayEngineState.appendLog("INFO", "Stopping Xray session...")
-        stopTunnelInternal()
         XrayEngineState.updateStatus(status = TunnelStatus.IDLE)
+        NekoWidgetManager.refreshAll(this)
+        serviceScope.launch {
+            engineMutex.withLock {
+                if (stopToken == activeSessionToken.get()) {
+                    stopTunnelInternal()
+                    NekoWidgetManager.refreshAll(this@XrayVpnService)
+                }
+            }
+        }
     }
 
     private fun stopTunnelInternal() {
@@ -601,7 +653,13 @@ class XrayVpnService : VpnService() {
     }
 
     override fun onDestroy() {
+        activeSessionToken.incrementAndGet()
+        activeStartJob?.cancel()
         stopPreviousEnginesOnly()
+        if (XrayEngineState.state.value.status != TunnelStatus.ERROR) {
+            XrayEngineState.updateStatus(status = TunnelStatus.IDLE)
+        }
+        NekoWidgetManager.refreshAll(this)
         serviceScope.cancel()
         super.onDestroy()
     }
@@ -688,6 +746,11 @@ class XrayVpnService : VpnService() {
             modeBadge
         }
 
+        val nextNodePending = NekoWidgetManager.actionBroadcastPendingIntent(
+            this,
+            NekoWidgetManager.ACTION_NEXT_PROFILE,
+            3,
+        )
         val builder = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_stat_nekoxray)
             .setColor(0xFF00B8D4.toInt())
@@ -707,6 +770,7 @@ class XrayVpnService : VpnService() {
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setContentIntent(mainPendingIntent())
             .addAction(R.drawable.ic_notif_reconnect, getString(R.string.action_reconnect), reconnectPending)
+            .addAction(R.drawable.ic_widget_next, getString(R.string.action_next_node), nextNodePending)
             .addAction(R.drawable.ic_notif_stop, getString(R.string.action_disconnect), stopPending)
 
         notificationLargeIcon?.let { builder.setLargeIcon(it) }

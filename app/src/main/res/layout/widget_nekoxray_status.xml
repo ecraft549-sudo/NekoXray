@@ -1,0 +1,163 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/widget_card_bg_idle"
+    android:padding="14dp">
+
+    <!-- Top header row: Brand + Status Pill -->
+    <LinearLayout
+        android:id="@+id/widget_header_row"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_alignParentTop="true"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <FrameLayout
+            android:layout_width="28dp"
+            android:layout_height="28dp"
+            android:background="@drawable/widget_badge_bg"
+            android:padding="4dp">
+
+            <ImageView
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:contentDescription="@string/app_name"
+                android:src="@drawable/ic_stat_nekoxray" />
+        </FrameLayout>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:fontFamily="sans-serif-medium"
+            android:letterSpacing="0.03"
+            android:text="@string/app_name"
+            android:textColor="#F1F5F9"
+            android:textSize="13sp" />
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="6dp"
+            android:layout_weight="1"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:text="Xray-core"
+            android:textColor="#64748B"
+            android:textSize="11sp" />
+
+        <LinearLayout
+            android:id="@+id/widget_status_pill"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:background="@drawable/widget_pill_idle"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingStart="9dp"
+            android:paddingTop="4dp"
+            android:paddingEnd="9dp"
+            android:paddingBottom="4dp">
+
+            <ImageView
+                android:id="@+id/widget_status_dot"
+                android:layout_width="7dp"
+                android:layout_height="7dp"
+                android:contentDescription="@null"
+                android:src="@drawable/ic_widget_dot_idle" />
+
+            <TextView
+                android:id="@+id/widget_status_text"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="6dp"
+                android:fontFamily="sans-serif-medium"
+                android:text="IDLE"
+                android:textColor="#94A3B8"
+                android:textSize="10sp" />
+        </LinearLayout>
+    </LinearLayout>
+
+    <!-- Action Controls on the right (Next node + Power Toggle) -->
+    <LinearLayout
+        android:id="@+id/widget_controls_col"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_alignParentEnd="true"
+        android:layout_alignParentBottom="true"
+        android:layout_below="@id/widget_header_row"
+        android:gravity="center_vertical|end"
+        android:orientation="horizontal"
+        android:paddingTop="8dp">
+
+        <ImageButton
+            android:id="@+id/widget_btn_next"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:layout_marginEnd="8dp"
+            android:background="@drawable/widget_next_btn_bg"
+            android:contentDescription="@string/widget_next_node"
+            android:padding="12dp"
+            android:scaleType="centerInside"
+            android:src="@drawable/ic_widget_next" />
+
+        <ImageButton
+            android:id="@+id/widget_btn_toggle"
+            android:layout_width="56dp"
+            android:layout_height="56dp"
+            android:background="@drawable/widget_power_btn_idle"
+            android:contentDescription="@string/widget_toggle_vpn"
+            android:padding="14dp"
+            android:scaleType="centerInside"
+            android:src="@drawable/ic_widget_power" />
+    </LinearLayout>
+
+    <!-- Left info column: Profile Name, Protocol Badge, Speeds -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_alignParentBottom="true"
+        android:layout_below="@id/widget_header_row"
+        android:layout_toStartOf="@id/widget_controls_col"
+        android:gravity="center_vertical"
+        android:orientation="vertical"
+        android:paddingEnd="10dp"
+        android:paddingTop="8dp">
+
+        <TextView
+            android:id="@+id/widget_profile_name"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:ellipsize="end"
+            android:fontFamily="sans-serif-medium"
+            android:maxLines="1"
+            android:text="Frankfurt REALITY"
+            android:textColor="#F8FAFC"
+            android:textSize="16sp" />
+
+        <TextView
+            android:id="@+id/widget_protocol_subtitle"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:text="VLESS · REALITY · TCP"
+            android:textColor="#22D3EE"
+            android:textSize="12sp" />
+
+        <TextView
+            android:id="@+id/widget_telemetry"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:ellipsize="end"
+            android:fontFamily="monospace"
+            android:maxLines="1"
+            android:text="↑ 0 B/s   ↓ 0 B/s"
+            android:textColor="#94A3B8"
+            android:textSize="11sp" />
+    </LinearLayout>
+</RelativeLayout>

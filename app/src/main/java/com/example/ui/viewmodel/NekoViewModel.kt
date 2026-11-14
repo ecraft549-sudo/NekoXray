@@ -21,7 +21,9 @@ import com.example.core.vpn.EngineRuntimeState
 import com.example.core.vpn.TunnelStatus
 import com.example.core.vpn.XrayEngineState
 import com.example.core.vpn.XrayVpnService
+import com.example.core.widget.NekoWidgetManager
 import com.example.core.xray.XrayConfigBuilder
+import com.example.ui.i18n.resolveAppStrings
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -130,7 +132,34 @@ class NekoViewModel(application: Application) : AndroidViewModel(application) {
     )
 
     fun selectProfile(id: Long) {
-        viewModelScope.launch { repo.setSelectedProfileId(id) }
+        viewModelScope.launch {
+            val app = getApplication<Application>()
+            val prevSelectedId = uiState.value.selectedProfileId
+            repo.setSelectedProfileId(id)
+
+            val runtime = XrayEngineState.state.value
+            val isRunning = runtime.status == TunnelStatus.CONNECTED ||
+                runtime.status == TunnelStatus.CONNECTING
+
+            if (isRunning && runtime.activeProfileId != id) {
+                val target = repo.getProfile(id) ?: uiState.value.profiles.find { it.id == id }
+                if (target != null) {
+                    val issues = XrayConfigBuilder.validateProfile(target).filter { it.isError }
+                    if (issues.isNotEmpty()) {
+                        repo.setSelectedProfileId(prevSelectedId)
+                        _events.emit(issues.first().message)
+                        NekoWidgetManager.refreshAll(app)
+                        return@launch
+                    }
+                    val latestSettings = repo.settingsFlow.first()
+                    val latestRules = repo.routingRulesFlow.first()
+                    startTunnelWith(profile = target, settings = latestSettings, rules = latestRules)
+                    val strings = resolveAppStrings(latestSettings.appLanguage)
+                    _events.emit("${strings.switchedProfilePrefix} '${target.displayTitle()}'.")
+                }
+            }
+            NekoWidgetManager.refreshAll(app)
+        }
     }
 
     fun selectGroup(id: Long) {
@@ -159,7 +188,13 @@ class NekoViewModel(application: Application) : AndroidViewModel(application) {
             val id = repo.saveProfile(profile)
             if (uiState.value.selectedProfileId == 0L || profile.id == 0L) {
                 repo.setSelectedProfileId(id)
+            } else if (XrayEngineState.state.value.activeProfileId == id &&
+                (XrayEngineState.state.value.status == TunnelStatus.CONNECTED ||
+                    XrayEngineState.state.value.status == TunnelStatus.CONNECTING)
+            ) {
+                reloadTunnelIfActive()
             }
+            NekoWidgetManager.refreshAll(getApplication())
             _events.emit("Saved '${profile.displayTitle()}'.")
             onSaved(id)
         }
@@ -168,6 +203,7 @@ class NekoViewModel(application: Application) : AndroidViewModel(application) {
     fun duplicateProfile(profile: ProxyProfile) {
         viewModelScope.launch {
             repo.duplicateProfile(profile)
+            NekoWidgetManager.refreshAll(getApplication())
             _events.emit("Duplicated '${profile.displayTitle()}'.")
         }
     }
@@ -175,6 +211,7 @@ class NekoViewModel(application: Application) : AndroidViewModel(application) {
     fun deleteProfile(id: Long) {
         viewModelScope.launch {
             repo.deleteProfile(id)
+            NekoWidgetManager.refreshAll(getApplication())
             _events.emit("Profile deleted.")
         }
     }
@@ -293,11 +330,15 @@ class NekoViewModel(application: Application) : AndroidViewModel(application) {
             val prev = repo.settingsFlow.first()
             repo.updateSettings(transform)
             val next = repo.settingsFlow.first()
-            val affectsTunnel = prev.copy(darkTheme = next.darkTheme, appLanguage = next.appLanguage) !=
-                next.copy(darkTheme = next.darkTheme, appLanguage = next.appLanguage)
-            if (affectsTunnel) {
+            val prevTunnelRelevant = prev.copy(
+                darkTheme = next.darkTheme,
+                appLanguage = next.appLanguage,
+                trayWidgetEnabled = next.trayWidgetEnabled,
+            )
+            if (prevTunnelRelevant != next) {
                 reloadTunnelIfActive()
             }
+            NekoWidgetManager.refreshAll(getApplication())
         }
     }
 
@@ -351,7 +392,12 @@ class NekoViewModel(application: Application) : AndroidViewModel(application) {
         if (current.engineState.status == TunnelStatus.CONNECTED ||
             current.engineState.status == TunnelStatus.CONNECTING
         ) {
-            app.startService(XrayVpnService.buildStopIntent(app))
+            XrayEngineState.updateStatus(status = TunnelStatus.IDLE)
+            val sent = runCatching { app.startService(XrayVpnService.buildStopIntent(app)) }.isSuccess
+            if (!sent) {
+                runCatching { app.stopService(Intent(app, XrayVpnService::class.java)) }
+            }
+            NekoWidgetManager.refreshAll(app)
             return
         }
 
@@ -395,34 +441,12 @@ class NekoViewModel(application: Application) : AndroidViewModel(application) {
         forceProxyOnly: Boolean = false,
     ) {
         val app = getApplication<Application>()
-        val isProxyOnly = forceProxyOnly || settings.serviceMode == ServiceMode.PROXY_ONLY
-        val configJson = XrayConfigBuilder.buildConfigJson(
-            profile = profile,
-            settings = settings,
-            rules = rules,
-            includeTunInbound = !isProxyOnly,
-        )
-        val protocolLabel = buildString {
-            append(profile.protocol.displayName)
-            if (profile.isReality) append(" · REALITY")
-            else if (profile.security.wireValue != "none") append(" · ${profile.security.displayName}")
-            append(" · ${profile.transport.wireValue.uppercase()}")
-        }
-        val intent = XrayVpnService.buildStartIntent(
+        val intent = NekoWidgetManager.buildStartServiceIntent(
             context = app,
             profile = profile,
-            protocolLabel = protocolLabel,
-            configJson = configJson,
-            mtu = settings.mtu,
-            bypassLan = settings.bypassLan,
-            proxyOnly = isProxyOnly,
-            ipv6Mode = settings.ipv6Mode,
-            socksPort = settings.socksPort,
-            httpPort = settings.httpPort,
-            perAppMode = settings.perAppMode,
-            perAppPackages = settings.perAppPackages,
             settings = settings,
             rules = rules,
+            forceProxyOnly = forceProxyOnly,
         )
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
             app.startForegroundService(intent)

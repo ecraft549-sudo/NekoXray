@@ -728,4 +728,106 @@ class XrayRealityTest {
         )
         assertEquals("Profiles", systemEn.navProfiles)
     }
+
+    @Test
+    fun `engine state updates live traffic and resets metrics when switching profiles`() {
+        val stateObj = com.example.core.vpn.XrayEngineState
+        stateObj.updateStatus(
+            status = com.example.core.vpn.TunnelStatus.CONNECTED,
+            profileId = 10L,
+            profileName = "Node A",
+            protocolLabel = "VLESS · REALITY · TCP",
+            isReality = true,
+        )
+        stateObj.updateTraffic(
+            upSpeedBps = 12_000L,
+            downSpeedBps = 250_000L,
+            totalUpBytes = 50_000L,
+            totalDownBytes = 1_200_000L,
+        )
+        assertEquals(250_000L, stateObj.state.value.downSpeedBps)
+        assertEquals(1_200_000L, stateObj.state.value.totalDownBytes)
+
+        // Switching to a different profile resets live speeds and totals
+        stateObj.updateStatus(
+            status = com.example.core.vpn.TunnelStatus.CONNECTING,
+            profileId = 20L,
+            profileName = "Node B",
+            protocolLabel = "SSH · TCP",
+            isReality = false,
+        )
+        assertEquals(20L, stateObj.state.value.activeProfileId)
+        assertEquals(0L, stateObj.state.value.downSpeedBps)
+        assertEquals(0L, stateObj.state.value.totalDownBytes)
+
+        // Clean up to IDLE
+        stateObj.updateStatus(status = com.example.core.vpn.TunnelStatus.IDLE)
+        assertEquals(0L, stateObj.state.value.upSpeedBps)
+    }
+
+    @Test
+    fun `widget manager builds valid start service intent and tray strings resolve`() {
+        val context = androidx.test.core.app.ApplicationProvider.getApplicationContext<android.content.Context>()
+        val keys = RealityKeyGenerator.generateBundle()
+        val profile = com.example.core.model.ProxyProfile(
+            id = 42L,
+            name = "Berlin REALITY",
+            protocol = ProxyProtocol.VLESS,
+            serverAddress = "de-ber.example.net",
+            serverPort = 443,
+            uuid = keys.uuid,
+            security = SecurityType.REALITY,
+            sni = "www.microsoft.com",
+            realityPublicKey = keys.publicKey,
+            realityShortId = keys.shortId,
+        )
+
+        val label = com.example.core.widget.NekoWidgetManager.formatProtocolLabel(profile)
+        assertTrue(label.contains("VLESS"))
+        assertTrue(label.contains("REALITY"))
+
+        val intent = com.example.core.widget.NekoWidgetManager.buildStartServiceIntent(
+            context = context,
+            profile = profile,
+            settings = XraySettings(),
+            rules = emptyList(),
+        )
+        assertEquals(com.example.core.vpn.XrayVpnService.ACTION_START, intent.action)
+        assertEquals(42L, intent.getLongExtra(com.example.core.vpn.XrayVpnService.EXTRA_PROFILE_ID, -1L))
+        assertEquals("Berlin REALITY", intent.getStringExtra(com.example.core.vpn.XrayVpnService.EXTRA_PROFILE_NAME))
+
+        val ruStrings = com.example.ui.i18n.resolveAppStrings(com.example.core.model.AppLanguage.RU)
+        assertTrue(ruStrings.trayWidgetTitle.isNotBlank())
+        assertTrue(ruStrings.switchedProfilePrefix.isNotBlank())
+        assertTrue(ruStrings.pinMiniWidgetBtn.contains("1×1"))
+    }
+
+    @Test
+    fun `mini 1x1 widget renders active and idle remote views cleanly`() {
+        val context = androidx.test.core.app.ApplicationProvider.getApplicationContext<android.content.Context>()
+        val strings = com.example.ui.i18n.resolveAppStrings(com.example.core.model.AppLanguage.RU)
+        val profile = com.example.core.model.ProxyProfile(id = 7L, name = "Finland")
+
+        val connectedViews = com.example.core.widget.NekoWidgetManager.buildMiniRemoteViews(
+            context = context,
+            runtime = com.example.core.vpn.EngineRuntimeState(
+                status = com.example.core.vpn.TunnelStatus.CONNECTED,
+                activeProfileId = 7L,
+                activeProfileName = "Finland",
+            ),
+            profile = profile,
+            strings = strings,
+        )
+        assertNotNull(connectedViews)
+
+        val idleViews = com.example.core.widget.NekoWidgetManager.buildMiniRemoteViews(
+            context = context,
+            runtime = com.example.core.vpn.EngineRuntimeState(
+                status = com.example.core.vpn.TunnelStatus.IDLE,
+            ),
+            profile = profile,
+            strings = strings,
+        )
+        assertNotNull(idleViews)
+    }
 }
