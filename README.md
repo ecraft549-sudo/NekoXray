@@ -111,3 +111,9 @@ Push a tag (`v*`, e.g. `v1.0.0`) or run the **Release Multi-ABI APKs** workflow 
 > To sign releases with your persistent upload key, add `RELEASE_KEYSTORE_BASE64`, `RELEASE_STORE_PASSWORD`, and `RELEASE_KEY_PASSWORD` (`alias: upload`) in **GitHub Repository Secrets**.
 >
 > **Note:** On Android 14+, the app uses `FOREGROUND_SERVICE_SPECIAL_USE` (`vpn`) for the system VPN tunnel and requests `CAMERA` permission only when opening the live QR scanner (image gallery scanning requires no storage permissions).
+
+### Download Landing Page (GitHub Pages)
+
+The `docs/` directory includes a single-page landing website (`docs/index.html`) that automatically fetches the latest release from GitHub Releases, detects the visitor's Android CPU ABI (`arm64-v8a`, `armeabi-v7a`, `x86_64`, `x86`, `universal`), displays release notes & `SHA256SUMS.txt`, and supports instant **EN / RU** switching.
+
+To publish it on GitHub Pages: open **Settings → Pages → Build and deployment → Source: GitHub Actions** (handled automatically by `.github/workflows/pages.yml`), or select **Deploy from a branch → `/docs`**.

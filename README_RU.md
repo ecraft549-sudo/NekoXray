@@ -109,3 +109,9 @@ gradle :app:testDebugUnitTest
 - `NekoXray-<tag>-universal.apk` и `NekoXray-<tag>.aab`
 
 > Чтобы подписывать релизы вашим постоянным ключом (с alias `upload`), добавьте в **GitHub Repository Secrets** переменные `RELEASE_KEYSTORE_BASE64`, `RELEASE_STORE_PASSWORD` и `RELEASE_KEY_PASSWORD`.
+
+### Одностраничный сайт для скачивания (GitHub Pages)
+
+В папке `docs/` находится одностраничный сайт (`docs/index.html`), который автоматически загружает последний релиз с GitHub Releases, определяет архитектуру устройства (`arm64-v8a`, `armeabi-v7a`, `x86_64`, `x86`, `universal`), показывает список изменений, `SHA256SUMS.txt` и поддерживает переключение **RU / EN**.
+
+Чтобы опубликовать сайт на GitHub Pages: откройте **Settings → Pages → Source: GitHub Actions** (используется готовый workflow `.github/workflows/pages.yml`), либо выберите **Deploy from a branch → `/docs`**.
