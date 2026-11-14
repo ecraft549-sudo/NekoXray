@@ -81,14 +81,31 @@ app/src/main/java/com/example/
 
 ---
 
-## Сборка из исходников
+## Сборка из исходников и релизы под разные архитектуры
 
 Скрипт `app/build.gradle.kts` автоматически загружает `libv2ray.aar` (`v26.10.31`) на этапе `preBuild`.
 
 ```bash
-# Сборка debug APK
+# Обычная универсальная debug-сборка
 gradle assembleDebug
+
+# Сборка отдельных APK под разные архитектуры (arm64-v8a, armeabi-v7a, x86, x86_64 + universal)
+gradle assembleDebug -PenableAbiSplits=true
+
+# Релизная сборка multi-ABI APK и App Bundle (.aab)
+gradle assembleRelease bundleRelease -PenableAbiSplits=true
 
 # Запуск модульных и Robolectric-тестов
 gradle :app:testDebugUnitTest
 ```
+
+### Автоматическая публикация GitHub Release
+
+После отправки репозитория на GitHub создайте тег вида `v1.0.0` или запустите workflow **Release Multi-ABI APKs** вручную во вкладке **Actions**. Пайплайн автоматически прогонит тесты, соберёт APK под каждую архитектуру, сформирует `SHA256SUMS.txt` и опубликует релиз с файлами:
+
+- `NekoXray-<tag>-arm64-v8a.apk` (современные 64-битные ARM-смартфоны — рекомендуется)
+- `NekoXray-<tag>-armeabi-v7a.apk` (32-битные ARM-устройства)
+- `NekoXray-<tag>-x86_64.apk` / `x86.apk` (эмуляторы и планшеты x86)
+- `NekoXray-<tag>-universal.apk` и `NekoXray-<tag>.aab`
+
+> Чтобы подписывать релизы вашим постоянным ключом (с alias `upload`), добавьте в **GitHub Repository Secrets** переменные `RELEASE_KEYSTORE_BASE64`, `RELEASE_STORE_PASSWORD` и `RELEASE_KEY_PASSWORD`.

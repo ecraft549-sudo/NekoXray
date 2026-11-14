@@ -81,16 +81,33 @@ app/src/main/java/com/example/
 
 ---
 
-## Building from Source
+## Building from Source & Multi-ABI Releases
 
 `app/build.gradle.kts` automatically downloads `libv2ray.aar` (`v26.10.31`) during `preBuild`.
 
 ```bash
-# Build debug APK
+# Build standard universal debug APK
 gradle assembleDebug
+
+# Build per-architecture APKs (arm64-v8a, armeabi-v7a, x86, x86_64 + universal)
+gradle assembleDebug -PenableAbiSplits=true
+
+# Build signed multi-ABI release APKs & App Bundle
+gradle assembleRelease bundleRelease -PenableAbiSplits=true
 
 # Run unit & Robolectric tests
 gradle :app:testDebugUnitTest
 ```
 
+### Automated GitHub Releases
+
+Push a tag (`v*`, e.g. `v1.0.0`) or run the **Release Multi-ABI APKs** workflow manually in GitHub Actions to automatically build, verify checksums (`SHA256SUMS.txt`), and publish a GitHub Release with:
+
+- `NekoXray-<tag>-arm64-v8a.apk` (Modern 64-bit ARM devices — recommended)
+- `NekoXray-<tag>-armeabi-v7a.apk` (32-bit ARM devices)
+- `NekoXray-<tag>-x86_64.apk` / `x86.apk` (Emulators & x86 tablets)
+- `NekoXray-<tag>-universal.apk` & `NekoXray-<tag>.aab`
+
+> To sign releases with your persistent upload key, add `RELEASE_KEYSTORE_BASE64`, `RELEASE_STORE_PASSWORD`, and `RELEASE_KEY_PASSWORD` (`alias: upload`) in **GitHub Repository Secrets**.
+>
 > **Note:** On Android 14+, the app uses `FOREGROUND_SERVICE_SPECIAL_USE` (`vpn`) for the system VPN tunnel and requests `CAMERA` permission only when opening the live QR scanner (image gallery scanning requires no storage permissions).
