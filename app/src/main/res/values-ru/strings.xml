@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">NekoXray</string>
+    <string name="vpn_service_label">VPN-туннель NekoXray</string>
+    <string name="tile_service_label">NekoXray</string>
+    <string name="notification_channel_name">Статус VPN NekoXray</string>
+    <string name="notification_channel_desc">Постоянное уведомление при активном туннеле Xray</string>
+    <string name="action_disconnect">Отключить</string>
+    <string name="action_reconnect">Переподключить</string>
+    <string name="nav_profiles">Профили</string>
+    <string name="nav_groups">Группы</string>
+    <string name="nav_routing">Роутинг</string>
+    <string name="nav_tools">Утилиты</string>
+    <string name="nav_settings">Настройки</string>
+    <string name="core_version_badge">Xray-core v26.10.31 · REALITY</string>
+    <string name="empty_profiles_title">Пока нет профилей Xray</string>
+    <string name="empty_profiles_subtitle">Вставьте ссылку vless:// REALITY из буфера обмена, отсканируйте QR-код или создайте профиль вручную.</string>
+    <string name="error_invalid_uri">Не удалось разобрать ссылку. Поддерживаются: vless://, vmess://, trojan://, ss://, socks://, ssh://, wg://</string>
+</resources>

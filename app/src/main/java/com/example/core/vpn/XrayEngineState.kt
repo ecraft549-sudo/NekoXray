@@ -1,0 +1,114 @@
+package com.example.core.vpn
+
+import com.example.core.model.XRAY_CORE_VERSION
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+
+enum class TunnelStatus {
+    IDLE,
+    CONNECTING,
+    CONNECTED,
+    ERROR,
+}
+
+data class LogEntry(
+    val timestamp: String,
+    val level: String,
+    val message: String,
+)
+
+data class EngineRuntimeState(
+    val status: TunnelStatus = TunnelStatus.IDLE,
+    val activeProfileId: Long? = null,
+    val activeProfileName: String = "",
+    val activeProtocolLabel: String = "",
+    val isRealityActive: Boolean = false,
+    val connectedSinceMs: Long? = null,
+    val activeConfigJson: String = "",
+    val nativeCoreVersion: String? = null,
+    val isNativeCoreLinked: Boolean = false,
+    val lastError: String? = null,
+    val logs: List<LogEntry> = emptyList(),
+)
+
+object XrayEngineState {
+    private val _state = MutableStateFlow(
+        EngineRuntimeState(
+            nativeCoreVersion = detectNativeLibV2rayVersion(),
+            isNativeCoreLinked = detectNativeLibV2ray(),
+        )
+    )
+    val state: StateFlow<EngineRuntimeState> = _state.asStateFlow()
+
+    private val timeFormat = SimpleDateFormat("HH:mm:ss", Locale.US)
+
+    init {
+        appendLog(
+            "INFO",
+            "NekoXray initialized (Schema: Xray-core $XRAY_CORE_VERSION, REALITY + XHTTP + ML-KEM-768 ready). " +
+                if (_state.value.isNativeCoreLinked) {
+                    val ver = _state.value.nativeCoreVersion ?: XRAY_CORE_VERSION
+                    "Native libv2ray linked ($ver)."
+                } else {
+                    "Built-in Kotlin TUN packet engine active."
+                },
+        )
+    }
+
+    fun updateStatus(
+        status: TunnelStatus,
+        profileId: Long? = _state.value.activeProfileId,
+        profileName: String = _state.value.activeProfileName,
+        protocolLabel: String = _state.value.activeProtocolLabel,
+        isReality: Boolean = _state.value.isRealityActive,
+        configJson: String = _state.value.activeConfigJson,
+        error: String? = null,
+    ) {
+        _state.update { current ->
+            current.copy(
+                status = status,
+                activeProfileId = profileId,
+                activeProfileName = profileName,
+                activeProtocolLabel = protocolLabel,
+                isRealityActive = isReality,
+                connectedSinceMs = when (status) {
+                    TunnelStatus.CONNECTED -> current.connectedSinceMs ?: System.currentTimeMillis()
+                    TunnelStatus.IDLE, TunnelStatus.ERROR -> null
+                    TunnelStatus.CONNECTING -> current.connectedSinceMs
+                },
+                activeConfigJson = configJson,
+                lastError = error,
+            )
+        }
+    }
+
+    fun appendLog(level: String, message: String) {
+        val entry = LogEntry(
+            timestamp = timeFormat.format(Date()),
+            level = level,
+            message = message,
+        )
+        _state.update { current ->
+            val updated = (current.logs + entry).takeLast(200)
+            current.copy(logs = updated)
+        }
+    }
+
+    fun clearLogs() {
+        _state.update { it.copy(logs = emptyList()) }
+    }
+
+    private fun detectNativeLibV2ray(): Boolean = runCatching {
+        Class.forName("libv2ray.Libv2ray", false, XrayEngineState::class.java.classLoader)
+        true
+    }.getOrDefault(false)
+
+    private fun detectNativeLibV2rayVersion(): String? = runCatching {
+        libv2ray.Libv2ray.checkVersionX()
+    }.getOrNull()
+}

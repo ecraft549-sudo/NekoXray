@@ -1,0 +1,729 @@
+package com.example.ui.screens
+
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Code
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Shield
+import androidx.compose.material.icons.filled.VerifiedUser
+import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.MenuAnchorType
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
+import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.unit.dp
+import com.example.core.crypto.RealityKeyGenerator
+import com.example.core.model.FlowType
+import com.example.core.model.ProxyProfile
+import com.example.core.model.ProxyProtocol
+import com.example.core.model.SecurityType
+import com.example.core.model.SshAuthType
+import com.example.core.model.TransportType
+import com.example.core.model.UtlsFingerprint
+import com.example.core.network.NetworkTester
+import com.example.core.network.TlsProbeResult
+import com.example.core.xray.XrayConfigBuilder
+import com.example.ui.i18n.LocalAppStrings
+import com.example.ui.theme.SignalAmber
+import com.example.ui.theme.SignalCrimson
+import com.example.ui.theme.SignalEmerald
+import kotlinx.coroutines.launch
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ProfileEditorScreen(
+    profileId: Long,
+    initialProtocol: String,
+    defaultGroupId: Long,
+    loadProfile: suspend (Long) -> ProxyProfile?,
+    onSave: (ProxyProfile) -> Unit,
+    onPreviewConfig: (ProxyProfile) -> Unit,
+    onBack: () -> Unit,
+) {
+    val scope = rememberCoroutineScope()
+    val strings = LocalAppStrings.current
+    val startProto = runCatching { ProxyProtocol.valueOf(initialProtocol) }.getOrDefault(ProxyProtocol.VLESS)
+
+    var profile by remember {
+        mutableStateOf(
+            ProxyProfile(
+                groupId = if (defaultGroupId > 0L) defaultGroupId else 1L,
+                protocol = startProto,
+                serverPort = if (startProto == ProxyProtocol.SSH) 22 else 443,
+                username = if (startProto == ProxyProtocol.SSH) "root" else "",
+                security = if (startProto == ProxyProtocol.VLESS) SecurityType.REALITY else if (startProto == ProxyProtocol.TROJAN) SecurityType.TLS else SecurityType.NONE,
+                flow = if (startProto == ProxyProtocol.VLESS) FlowType.VISION else FlowType.NONE,
+                sni = if (startProto == ProxyProtocol.VLESS) "www.microsoft.com" else "",
+            )
+        )
+    }
+    var loaded by remember { mutableStateOf(profileId == 0L) }
+    var sniCheckResult by remember { mutableStateOf<TlsProbeResult?>(null) }
+    var isCheckingSni by remember { mutableStateOf(false) }
+
+    LaunchedEffect(profileId) {
+        if (profileId > 0L) {
+            loadProfile(profileId)?.let { profile = it }
+            loaded = true
+        }
+    }
+
+    val issues = remember(profile) { XrayConfigBuilder.validateProfile(profile) }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text(if (profileId == 0L) strings.newProfileTitle else strings.editProfileTitle) },
+                navigationIcon = {
+                    IconButton(onClick = onBack, modifier = Modifier.testTag("editor_back_button")) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = strings.back)
+                    }
+                },
+                actions = {
+                    IconButton(
+                        onClick = { onPreviewConfig(profile) },
+                        modifier = Modifier.testTag("editor_preview_json_button"),
+                    ) {
+                        Icon(Icons.Default.Code, contentDescription = strings.previewXrayJson)
+                    }
+                    IconButton(
+                        onClick = { onSave(profile) },
+                        modifier = Modifier.testTag("editor_save_button"),
+                    ) {
+                        Icon(Icons.Default.Check, contentDescription = strings.save)
+                    }
+                },
+            )
+        },
+    ) { innerPadding ->
+        if (!loaded) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
+            ) {
+                CircularProgressIndicator()
+            }
+            return@Scaffold
+        }
+
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .verticalScroll(rememberScrollState())
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            // Protocol selector
+            EnumDropdown(
+                label = strings.protocolLabel,
+                selected = profile.protocol.displayName,
+                options = ProxyProtocol.entries.map { it to it.displayName },
+                onSelect = { proto ->
+                    profile = profile.copy(
+                        protocol = proto,
+                        serverPort = if (proto == ProxyProtocol.SSH && profile.serverPort == 443) 22 else if (proto != ProxyProtocol.SSH && profile.serverPort == 22) 443 else profile.serverPort,
+                        username = if (proto == ProxyProtocol.SSH && profile.username.isBlank()) "root" else profile.username,
+                        security = when (proto) {
+                            ProxyProtocol.VLESS -> if (profile.security == SecurityType.NONE) SecurityType.REALITY else profile.security
+                            ProxyProtocol.TROJAN -> if (profile.security == SecurityType.NONE) SecurityType.TLS else profile.security
+                            ProxyProtocol.SHADOWSOCKS, ProxyProtocol.SOCKS5, ProxyProtocol.SSH, ProxyProtocol.WIREGUARD, ProxyProtocol.CUSTOM_JSON -> SecurityType.NONE
+                            else -> profile.security
+                        },
+                        flow = if (proto == ProxyProtocol.VLESS) profile.flow else FlowType.NONE,
+                    )
+                },
+            )
+
+            OutlinedTextField(
+                value = profile.name,
+                onValueChange = { profile = profile.copy(name = it) },
+                label = { Text(strings.profileNameLabel) },
+                placeholder = { Text("e.g. Frankfurt REALITY") },
+                singleLine = true,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("editor_name_input"),
+            )
+
+            if (profile.protocol == ProxyProtocol.CUSTOM_JSON) {
+                OutlinedTextField(
+                    value = profile.customConfigJson,
+                    onValueChange = { profile = profile.copy(customConfigJson = it) },
+                    label = { Text(strings.customXrayJson) },
+                    minLines = 12,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            } else {
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    OutlinedTextField(
+                        value = profile.serverAddress,
+                        onValueChange = { profile = profile.copy(serverAddress = it) },
+                        label = { Text(strings.serverAddressLabel) },
+                        singleLine = true,
+                        modifier = Modifier
+                            .weight(2f)
+                            .testTag("editor_address_input"),
+                    )
+                    OutlinedTextField(
+                        value = profile.serverPort.toString(),
+                        onValueChange = { v ->
+                            v.toIntOrNull()?.let { profile = profile.copy(serverPort = it) }
+                        },
+                        label = { Text(strings.portLabel) },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        modifier = Modifier
+                            .weight(1f)
+                            .testTag("editor_port_input"),
+                    )
+                }
+
+                // Protocol-specific authentication
+                when (profile.protocol) {
+                    ProxyProtocol.VLESS, ProxyProtocol.VMESS -> {
+                        OutlinedTextField(
+                            value = profile.uuid,
+                            onValueChange = { profile = profile.copy(uuid = it.trim()) },
+                            label = { Text("UUID") },
+                            singleLine = true,
+                            trailingIcon = {
+                                IconButton(
+                                    onClick = {
+                                        profile = profile.copy(uuid = RealityKeyGenerator.generateUuid())
+                                    },
+                                ) {
+                                    Icon(Icons.Default.Refresh, contentDescription = "Generate UUID")
+                                }
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("editor_uuid_input"),
+                        )
+                        if (profile.protocol == ProxyProtocol.VLESS) {
+                            EnumDropdown(
+                                label = "XTLS Flow",
+                                selected = profile.flow.displayName,
+                                options = FlowType.entries.map { it to it.displayName },
+                                onSelect = { profile = profile.copy(flow = it) },
+                            )
+                        } else {
+                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                OutlinedTextField(
+                                    value = profile.alterId.toString(),
+                                    onValueChange = { v ->
+                                        v.toIntOrNull()?.let { profile = profile.copy(alterId = it) }
+                                    },
+                                    label = { Text("AlterID") },
+                                    singleLine = true,
+                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                    modifier = Modifier.weight(1f),
+                                )
+                                OutlinedTextField(
+                                    value = profile.encryption,
+                                    onValueChange = { profile = profile.copy(encryption = it) },
+                                    label = { Text("Security Cipher") },
+                                    singleLine = true,
+                                    modifier = Modifier.weight(1f),
+                                )
+                            }
+                        }
+                    }
+
+                    ProxyProtocol.TROJAN -> {
+                        OutlinedTextField(
+                            value = profile.password,
+                            onValueChange = { profile = profile.copy(password = it) },
+                            label = { Text("Trojan Password") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+
+                    ProxyProtocol.SHADOWSOCKS -> {
+                        OutlinedTextField(
+                            value = profile.encryption,
+                            onValueChange = { profile = profile.copy(encryption = it) },
+                            label = { Text("Method (e.g. 2022-blake3-aes-128-gcm)") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        OutlinedTextField(
+                            value = profile.password,
+                            onValueChange = { profile = profile.copy(password = it) },
+                            label = { Text("Password / Base64 PSK") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+
+                    ProxyProtocol.SOCKS5, ProxyProtocol.HTTP -> {
+                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            OutlinedTextField(
+                                value = profile.username,
+                                onValueChange = { profile = profile.copy(username = it) },
+                                label = { Text(strings.usernameLabel) },
+                                singleLine = true,
+                                modifier = Modifier.weight(1f),
+                            )
+                            OutlinedTextField(
+                                value = profile.password,
+                                onValueChange = { profile = profile.copy(password = it) },
+                                label = { Text(strings.passwordLabel) },
+                                singleLine = true,
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
+                    }
+
+                    ProxyProtocol.WIREGUARD -> {
+                        OutlinedTextField(
+                            value = profile.wgPrivateKey,
+                            onValueChange = { profile = profile.copy(wgPrivateKey = it.trim()) },
+                            label = { Text(strings.privateKeyLabel) },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        OutlinedTextField(
+                            value = profile.wgPeerPublicKey,
+                            onValueChange = { profile = profile.copy(wgPeerPublicKey = it.trim()) },
+                            label = { Text("Peer Public Key") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            OutlinedTextField(
+                                value = profile.wgLocalAddress,
+                                onValueChange = { profile = profile.copy(wgLocalAddress = it) },
+                                label = { Text("Local Address CIDR") },
+                                singleLine = true,
+                                modifier = Modifier.weight(2f),
+                            )
+                            OutlinedTextField(
+                                value = profile.wgMtu.toString(),
+                                onValueChange = { v -> v.toIntOrNull()?.let { profile = profile.copy(wgMtu = it) } },
+                                label = { Text("MTU") },
+                                singleLine = true,
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
+                    }
+
+                    ProxyProtocol.SSH -> {
+                        OutlinedTextField(
+                            value = profile.username,
+                            onValueChange = { profile = profile.copy(username = it.trim()) },
+                            label = { Text(strings.usernameLabel) },
+                            placeholder = { Text("root") },
+                            singleLine = true,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("editor_ssh_username_input"),
+                        )
+
+                        EnumDropdown(
+                            label = strings.authTypeLabel,
+                            selected = profile.sshAuthType.displayName,
+                            options = SshAuthType.entries.map { it to it.displayName },
+                            onSelect = { profile = profile.copy(sshAuthType = it) },
+                        )
+
+                        if (profile.sshAuthType == SshAuthType.PASSWORD) {
+                            OutlinedTextField(
+                                value = profile.password,
+                                onValueChange = { profile = profile.copy(password = it) },
+                                label = { Text(strings.passwordLabel) },
+                                singleLine = true,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("editor_ssh_password_input"),
+                            )
+                        }
+
+                        if (profile.sshAuthType == SshAuthType.PRIVATE_KEY) {
+                            OutlinedTextField(
+                                value = profile.sshPrivateKey,
+                                onValueChange = { profile = profile.copy(sshPrivateKey = it) },
+                                label = { Text(strings.privateKeyLabel) },
+                                placeholder = { Text("-----BEGIN OPENSSH PRIVATE KEY-----") },
+                                minLines = 3,
+                                maxLines = 6,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("editor_ssh_private_key_input"),
+                            )
+                            OutlinedTextField(
+                                value = profile.sshPrivateKeyPassphrase,
+                                onValueChange = { profile = profile.copy(sshPrivateKeyPassphrase = it) },
+                                label = { Text(strings.passphraseOptionalLabel) },
+                                singleLine = true,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("editor_ssh_passphrase_input"),
+                            )
+                        }
+
+                        OutlinedTextField(
+                            value = profile.sshPublicKey,
+                            onValueChange = { profile = profile.copy(sshPublicKey = it) },
+                            label = { Text(strings.publicKeyOptionalLabel) },
+                            placeholder = { Text("ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA...") },
+                            minLines = 2,
+                            maxLines = 4,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("editor_ssh_public_key_input"),
+                        )
+                    }
+
+                    ProxyProtocol.CUSTOM_JSON -> Unit
+                }
+
+                // Transport & Security for V2Ray-family protocols
+                if (profile.protocol in listOf(
+                        ProxyProtocol.VLESS,
+                        ProxyProtocol.VMESS,
+                        ProxyProtocol.TROJAN,
+                        ProxyProtocol.HTTP,
+                    )
+                ) {
+                    if (profile.protocol != ProxyProtocol.HTTP) {
+                        EnumDropdown(
+                            label = strings.transportNetworkLabel,
+                            selected = profile.transport.displayName,
+                            options = TransportType.entries.map { it to it.displayName },
+                            onSelect = { profile = profile.copy(transport = it) },
+                        )
+
+                        if (profile.transport != TransportType.TCP) {
+                            OutlinedTextField(
+                                value = profile.host,
+                                onValueChange = { profile = profile.copy(host = it) },
+                                label = { Text("Host / Authority") },
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                            OutlinedTextField(
+                                value = profile.path,
+                                onValueChange = { profile = profile.copy(path = it) },
+                                label = {
+                                    Text(
+                                        if (profile.transport == TransportType.GRPC) "gRPC ServiceName"
+                                        else "Path (e.g. /)"
+                                    )
+                                },
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                            if (profile.transport == TransportType.XHTTP) {
+                                EnumDropdown(
+                                    label = "XHTTP Mode",
+                                    selected = profile.xhttpMode,
+                                    options = listOf(
+                                        "auto" to "auto",
+                                        "packet-up" to "packet-up",
+                                        "stream-up" to "stream-up",
+                                        "stream-one" to "stream-one",
+                                    ),
+                                    onSelect = { profile = profile.copy(xhttpMode = it) },
+                                )
+                            }
+                        }
+                    }
+
+                    EnumDropdown(
+                        label = strings.transportSecurityLabel,
+                        selected = profile.security.displayName,
+                        options = SecurityType.entries.map { it to it.displayName },
+                        onSelect = { sec ->
+                            profile = profile.copy(
+                                security = sec,
+                                fingerprint = if (sec == SecurityType.REALITY && profile.fingerprint.isBlank()) "chrome" else profile.fingerprint,
+                            )
+                        },
+                    )
+
+                    AnimatedVisibility(visible = profile.security == SecurityType.REALITY || profile.security == SecurityType.TLS) {
+                        Card(
+                            colors = CardDefaults.cardColors(
+                                containerColor = if (profile.security == SecurityType.REALITY) {
+                                    MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.35f)
+                                } else {
+                                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                                }
+                            ),
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(14.dp),
+                                verticalArrangement = Arrangement.spacedBy(10.dp),
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        imageVector = Icons.Default.Shield,
+                                        contentDescription = null,
+                                        tint = if (profile.security == SecurityType.REALITY) {
+                                            MaterialTheme.colorScheme.secondary
+                                        } else {
+                                            MaterialTheme.colorScheme.primary
+                                        },
+                                    )
+                                    Spacer(Modifier.width(8.dp))
+                                    Text(
+                                        text = if (profile.security == SecurityType.REALITY) strings.realitySettingsTitle else strings.tlsSettingsTitle,
+                                        style = MaterialTheme.typography.titleMedium,
+                                    )
+                                }
+
+                                OutlinedTextField(
+                                    value = profile.sni,
+                                    onValueChange = { profile = profile.copy(sni = it.trim()) },
+                                    label = { Text("Server Name (SNI)") },
+                                    placeholder = { Text("www.microsoft.com") },
+                                    singleLine = true,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .testTag("editor_sni_input"),
+                                )
+
+                                EnumDropdown(
+                                    label = "uTLS Fingerprint (fp)",
+                                    selected = profile.fingerprint.ifBlank { "chrome" },
+                                    options = UtlsFingerprint.entries.map { it.wireValue to it.wireValue },
+                                    onSelect = { profile = profile.copy(fingerprint = it) },
+                                )
+
+                                if (profile.security == SecurityType.REALITY) {
+                                    OutlinedTextField(
+                                        value = profile.realityPublicKey,
+                                        onValueChange = { profile = profile.copy(realityPublicKey = it.trim()) },
+                                        label = { Text("REALITY Public Key (pbk)") },
+                                        singleLine = true,
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .testTag("editor_reality_pbk_input"),
+                                    )
+                                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                        OutlinedTextField(
+                                            value = profile.realityShortId,
+                                            onValueChange = { profile = profile.copy(realityShortId = it.trim()) },
+                                            label = { Text("Short ID (sid)") },
+                                            singleLine = true,
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .testTag("editor_reality_sid_input"),
+                                        )
+                                        OutlinedTextField(
+                                            value = profile.realitySpiderX,
+                                            onValueChange = { profile = profile.copy(realitySpiderX = it) },
+                                            label = { Text("SpiderX (spx)") },
+                                            singleLine = true,
+                                            modifier = Modifier.weight(1f),
+                                        )
+                                    }
+                                    OutlinedTextField(
+                                        value = profile.realityMldsa65Verify,
+                                        onValueChange = { profile = profile.copy(realityMldsa65Verify = it.trim()) },
+                                        label = { Text("ML-DSA-65 Verify (pqv, optional)") },
+                                        singleLine = true,
+                                        modifier = Modifier.fillMaxWidth(),
+                                    )
+
+                                    OutlinedButton(
+                                        onClick = {
+                                            val targetSni = profile.sni.ifBlank { profile.serverAddress }
+                                            scope.launch {
+                                                isCheckingSni = true
+                                                sniCheckResult = NetworkTester.probeTlsSni(targetSni, 443, targetSni)
+                                                isCheckingSni = false
+                                            }
+                                        },
+                                        enabled = !isCheckingSni && (profile.sni.isNotBlank() || profile.serverAddress.isNotBlank()),
+                                        modifier = Modifier.fillMaxWidth(),
+                                    ) {
+                                        if (isCheckingSni) {
+                                            CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                                            Spacer(Modifier.width(8.dp))
+                                        } else {
+                                            Icon(Icons.Default.VerifiedUser, null, modifier = Modifier.size(16.dp))
+                                            Spacer(Modifier.width(8.dp))
+                                        }
+                                        Text(strings.probeRealitySniBtn)
+                                    }
+
+                                    sniCheckResult?.let { res ->
+                                        Text(
+                                            text = if (res.success) {
+                                                "${res.tlsProtocol} · ${res.latencyMs}ms · ${
+                                                    if (res.isRealityCompatible) strings.probeGood else strings.probeUnsuitable
+                                                }"
+                                            } else {
+                                                "Probe failed: ${res.error}"
+                                            },
+                                            style = MaterialTheme.typography.labelMedium,
+                                            color = if (res.success && res.isRealityCompatible) SignalEmerald else SignalCrimson,
+                                        )
+                                    }
+                                } else {
+                                    OutlinedTextField(
+                                        value = profile.alpn,
+                                        onValueChange = { profile = profile.copy(alpn = it) },
+                                        label = { Text("ALPN (h2,http/1.1)") },
+                                        singleLine = true,
+                                        modifier = Modifier.fillMaxWidth(),
+                                    )
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        Text(strings.allowInsecureGlobalTitle, style = MaterialTheme.typography.bodyMedium)
+                                        Switch(
+                                            checked = profile.allowInsecure,
+                                            onCheckedChange = { profile = profile.copy(allowInsecure = it) },
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Mux toggle (disabled automatically when XTLS Vision is active)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(strings.enableMuxTitle, style = MaterialTheme.typography.bodyLarge)
+                            Text(
+                                text = strings.enableMuxSubtitle,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        Switch(
+                            checked = profile.muxEnabled,
+                            onCheckedChange = { profile = profile.copy(muxEnabled = it) },
+                        )
+                    }
+                }
+            }
+
+            if (issues.isNotEmpty()) {
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Column(
+                        modifier = Modifier.padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        Text(strings.validationChecksTitle, style = MaterialTheme.typography.titleSmall)
+                        issues.forEach { issue ->
+                            Text(
+                                text = "• ${issue.message}",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = if (issue.isError) SignalCrimson else SignalAmber,
+                            )
+                        }
+                    }
+                }
+            }
+
+            Button(
+                onClick = { onSave(profile) },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(50.dp)
+                    .testTag("editor_primary_save_button"),
+            ) {
+                Text(strings.saveProfileBtn)
+            }
+
+            Spacer(Modifier.height(24.dp))
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun <T> EnumDropdown(
+    label: String,
+    selected: String,
+    options: List<Pair<T, String>>,
+    onSelect: (T) -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    ExposedDropdownMenuBox(
+        expanded = expanded,
+        onExpandedChange = { expanded = !expanded },
+    ) {
+        OutlinedTextField(
+            value = selected,
+            onValueChange = {},
+            readOnly = true,
+            label = { Text(label) },
+            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+            modifier = Modifier
+                .fillMaxWidth()
+                .menuAnchor(MenuAnchorType.PrimaryNotEditable),
+        )
+        ExposedDropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+        ) {
+            options.forEach { (value, text) ->
+                DropdownMenuItem(
+                    text = { Text(text) },
+                    onClick = {
+                        onSelect(value)
+                        expanded = false
+                    },
+                )
+            }
+        }
+    }
+}

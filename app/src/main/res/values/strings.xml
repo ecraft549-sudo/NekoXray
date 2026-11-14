@@ -1,0 +1,18 @@
+<resources>
+    <string name="app_name">NekoXray</string>
+    <string name="vpn_service_label">NekoXray VPN Tunnel</string>
+    <string name="tile_service_label">NekoXray</string>
+    <string name="notification_channel_name">NekoXray VPN Status</string>
+    <string name="notification_channel_desc">Persistent status notification while Xray tunnel is active</string>
+    <string name="action_disconnect">Disconnect</string>
+    <string name="action_reconnect">Reconnect</string>
+    <string name="nav_profiles">Profiles</string>
+    <string name="nav_groups">Groups</string>
+    <string name="nav_routing">Routing</string>
+    <string name="nav_tools">Tools</string>
+    <string name="nav_settings">Settings</string>
+    <string name="core_version_badge">Xray-core v26.10.31 · REALITY</string>
+    <string name="empty_profiles_title">No Xray Profiles Yet</string>
+    <string name="empty_profiles_subtitle">Import a vless:// REALITY link from clipboard, add a subscription group, or create a profile manually.</string>
+    <string name="error_invalid_uri">Could not parse proxy URI. Supported: vless://, vmess://, trojan://, ss://, socks://, ssh://, wg://</string>
+</resources>
