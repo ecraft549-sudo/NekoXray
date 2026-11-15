@@ -872,4 +872,64 @@ class XrayRealityTest {
         )
         assertNotNull(idleViews)
     }
+
+    @Test
+    fun `subscription urls parse as groups instead of http proxy configs`() {
+        val httpsSub = UriParser.parseSubscriptions("https://sub.example.com/api/v1/client/subscribe?token=abc#My%20VPN")
+        assertEquals(1, httpsSub.size)
+        assertEquals("https://sub.example.com/api/v1/client/subscribe?token=abc", httpsSub[0].url)
+        assertEquals("My VPN", httpsSub[0].name)
+        assertTrue(UriParser.parseBatch("https://sub.example.com/api/v1/client/subscribe?token=abc#My%20VPN").isEmpty())
+
+        val pathSub = "https://panel.example.org/sub/12345"
+        assertEquals(1, UriParser.parseSubscriptions(pathSub).size)
+        assertTrue(UriParser.parseBatch(pathSub).isEmpty())
+
+        val encodedSubUrl = android.util.Base64.encodeToString(
+            "https://cdn.example.net/sub/xyz#FastSub".toByteArray(),
+            android.util.Base64.URL_SAFE or android.util.Base64.NO_WRAP,
+        )
+        val subScheme = UriParser.parseSubscriptions("sub://$encodedSubUrl")
+        assertEquals(1, subScheme.size)
+        assertEquals("https://cdn.example.net/sub/xyz", subScheme[0].url)
+        assertEquals("FastSub", subScheme[0].name)
+
+        val v2rayNgSub = UriParser.parseSubscriptions(
+            "v2rayng://install-sub?url=https%3A%2F%2Fexample.com%2Fsub%3Fid%3D9&name=CloudSub"
+        )
+        assertEquals(1, v2rayNgSub.size)
+        assertEquals("https://example.com/sub?id=9", v2rayNgSub[0].url)
+        assertEquals("CloudSub", v2rayNgSub[0].name)
+
+        val clashSub = UriParser.parseSubscriptions(
+            "clash://install-config?url=https%3A%2F%2Fexample.org%2Fclash.yaml#ClashGroup"
+        )
+        assertEquals(1, clashSub.size)
+        assertEquals("https://example.org/clash.yaml", clashSub[0].url)
+        assertEquals("ClashGroup", clashSub[0].name)
+
+        val happSub = UriParser.parseSubscriptions("happ://add/https%3A%2F%2Fexample.io%2Fsub#HappGroup")
+        assertEquals(1, happSub.size)
+        assertEquals("https://example.io/sub", happSub[0].url)
+        assertEquals("HappGroup", happSub[0].name)
+
+        // Explicit bare HTTP proxy URIs must NOT be captured as subscriptions and must remain HTTP profiles
+        val explicitHttpProxy = "http://alice:pass@1.2.3.4:8080#WorkHttp"
+        assertTrue(UriParser.parseSubscriptions(explicitHttpProxy).isEmpty())
+        val parsedHttpProfiles = UriParser.parseBatch(explicitHttpProxy)
+        assertEquals(1, parsedHttpProfiles.size)
+        assertEquals(ProxyProtocol.HTTP, parsedHttpProfiles[0].protocol)
+        assertEquals("1.2.3.4", parsedHttpProfiles[0].serverAddress)
+        assertEquals(8080, parsedHttpProfiles[0].serverPort)
+        assertEquals("alice", parsedHttpProfiles[0].username)
+        assertEquals("pass", parsedHttpProfiles[0].password)
+        assertEquals("WorkHttp", parsedHttpProfiles[0].name)
+
+        val barePortHttpProxy = "http://198.51.100.2:3128#Squid"
+        assertTrue(UriParser.parseSubscriptions(barePortHttpProxy).isEmpty())
+        val parsedSquid = UriParser.parseBatch(barePortHttpProxy)
+        assertEquals(1, parsedSquid.size)
+        assertEquals(ProxyProtocol.HTTP, parsedSquid[0].protocol)
+        assertEquals(3128, parsedSquid[0].serverPort)
+    }
 }

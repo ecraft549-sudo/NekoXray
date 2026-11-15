@@ -172,10 +172,24 @@ class NekoRepository(
         )
         return result.map { fetched ->
             profileDao.deleteByGroup(group.id)
-            profileDao.insertAll(fetched.profiles.map { ProfileEntity.fromDomain(it) })
+            val insertedIds = profileDao.insertAll(fetched.profiles.map { ProfileEntity.fromDomain(it) })
+            val currentSelectedId = selectedProfileIdFlow.first()
+            val selectedStillExists = currentSelectedId > 0L && profileDao.getById(currentSelectedId) != null
+            if (!selectedStillExists && insertedIds.isNotEmpty()) {
+                settingsStore.setSelectedProfileId(insertedIds.first())
+            }
+            val urlHost = runCatching { android.net.Uri.parse(group.subscriptionUrl).host.orEmpty() }.getOrDefault("")
+            val resolvedName = if (!fetched.profileTitle.isNullOrBlank() &&
+                (group.name.isBlank() || group.name == "Subscription" || group.name.equals(urlHost, ignoreCase = true))
+            ) {
+                fetched.profileTitle
+            } else {
+                group.name
+            }
             groupDao.update(
                 GroupEntity.fromDomain(
                     group.copy(
+                        name = resolvedName,
                         lastUpdatedAt = System.currentTimeMillis(),
                         uploadBytes = fetched.uploadBytes,
                         downloadBytes = fetched.downloadBytes,

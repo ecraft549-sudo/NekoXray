@@ -17,6 +17,7 @@ import com.example.core.model.ServiceMode
 import com.example.core.model.XraySettings
 import com.example.core.network.NetworkTester
 import com.example.core.network.TlsProbeResult
+import com.example.core.parser.UriParser
 import com.example.core.vpn.EngineRuntimeState
 import com.example.core.vpn.TunnelStatus
 import com.example.core.vpn.XrayEngineState
@@ -172,13 +173,68 @@ class NekoViewModel(application: Application) : AndroidViewModel(application) {
 
     fun importText(raw: String) {
         viewModelScope.launch {
+            val subscriptions = UriParser.parseSubscriptions(raw)
+            var createdOrSyncedGroups = 0
+            var syncedNodes = 0
+            var lastSyncError: String? = null
+
+            if (subscriptions.isNotEmpty()) {
+                val existingGroups = uiState.value.groups
+                for (sub in subscriptions) {
+                    val existing = existingGroups.find {
+                        it.isSubscription && it.subscriptionUrl.equals(sub.url, ignoreCase = true)
+                    }
+                    val targetSubGroup = if (existing != null) {
+                        existing
+                    } else {
+                        val newGroup = ProxyGroup(
+                            name = sub.name,
+                            isSubscription = true,
+                            subscriptionUrl = sub.url,
+                        )
+                        val newId = repo.saveGroup(newGroup)
+                        newGroup.copy(id = newId)
+                    }
+
+                    repo.setSelectedGroupId(targetSubGroup.id)
+                    transient.update { it.copy(syncingGroupIds = it.syncingGroupIds + targetSubGroup.id) }
+                    val res = repo.syncSubscription(targetSubGroup)
+                    transient.update { it.copy(syncingGroupIds = it.syncingGroupIds - targetSubGroup.id) }
+
+                    createdOrSyncedGroups++
+                    res.onSuccess { n ->
+                        syncedNodes += n
+                        XrayEngineState.appendLog("INFO", "Subscription '${targetSubGroup.name}' imported ($n nodes).")
+                    }.onFailure { err ->
+                        lastSyncError = err.message
+                        XrayEngineState.appendLog("ERROR", "Subscription '${targetSubGroup.name}' sync failed: ${err.message}")
+                    }
+                }
+            }
+
             val targetGroup = uiState.value.selectedGroupId.takeIf { it > 0L } ?: 1L
-            val count = repo.importFromText(raw, targetGroup)
-            if (count > 0) {
-                _events.emit("Imported $count profile(s) into group.")
-                XrayEngineState.appendLog("INFO", "Imported $count profile(s) from URI/JSON.")
-            } else {
-                _events.emit("No valid vless://, vmess://, trojan://, ss://, socks://, ssh://, wg:// or Xray JSON found.")
+            val profileCount = repo.importFromText(raw, targetGroup)
+            if (profileCount > 0) {
+                XrayEngineState.appendLog("INFO", "Imported $profileCount profile(s) from URI/JSON.")
+            }
+
+            if (createdOrSyncedGroups > 0 || profileCount > 0) {
+                NekoWidgetManager.refreshAll(getApplication())
+            }
+
+            when {
+                createdOrSyncedGroups > 0 && lastSyncError == null -> {
+                    _events.emit("Subscription group ready: $syncedNodes profile(s) synced.")
+                }
+                createdOrSyncedGroups > 0 && lastSyncError != null -> {
+                    _events.emit("Saved subscription group, but sync failed: $lastSyncError")
+                }
+                profileCount > 0 -> {
+                    _events.emit("Imported $profileCount profile(s) into group.")
+                }
+                else -> {
+                    _events.emit("No valid subscription URL or vless://, vmess://, trojan://, ss://, socks://, ssh://, wg:// or Xray JSON found.")
+                }
             }
         }
     }

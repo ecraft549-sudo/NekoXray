@@ -34,6 +34,7 @@ data class SubscriptionFetchResult(
     val downloadBytes: Long = 0L,
     val totalBytes: Long = 0L,
     val expireTimestampSec: Long = 0L,
+    val profileTitle: String? = null,
 )
 
 object NetworkTester {
@@ -151,12 +152,27 @@ object NetworkTester {
                     }
                     .toMap()
 
+                val rawTitle = resp.header("profile-title")?.trim().orEmpty()
+                val decodedTitle = when {
+                    rawTitle.startsWith("base64:", ignoreCase = true) -> {
+                        runCatching {
+                            String(
+                                android.util.Base64.decode(rawTitle.substring(7).trim(), android.util.Base64.DEFAULT),
+                                Charsets.UTF_8,
+                            ).trim()
+                        }.getOrNull()
+                    }
+                    rawTitle.isNotBlank() -> rawTitle
+                    else -> null
+                }?.takeIf { it.isNotBlank() }
+
                 SubscriptionFetchResult(
                     profiles = profiles,
                     uploadBytes = infoMap["upload"] ?: 0L,
                     downloadBytes = infoMap["download"] ?: 0L,
                     totalBytes = infoMap["total"] ?: 0L,
                     expireTimestampSec = infoMap["expire"] ?: 0L,
+                    profileTitle = decodedTitle,
                 )
             }
         }

@@ -360,6 +360,10 @@ private fun NekoXrayRoot(
                                     onSaveGroup = viewModel::saveGroup,
                                     onDeleteGroup = viewModel::deleteGroup,
                                     onSyncGroup = viewModel::syncSubscription,
+                                    onImportText = viewModel::importText,
+                                    onNotice = { msg ->
+                                        scope.launch { snackbarHostState.showSnackbar(msg) }
+                                    },
                                 )
                             }
 

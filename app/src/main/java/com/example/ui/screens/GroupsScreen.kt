@@ -17,6 +17,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -43,6 +44,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.core.model.ProxyGroup
+import com.example.ui.components.QrScannerDialog
 import com.example.ui.components.TagPill
 import com.example.ui.i18n.LocalAppStrings
 import com.example.ui.viewmodel.NekoUiState
@@ -56,10 +58,13 @@ fun GroupsScreen(
     onSaveGroup: (ProxyGroup) -> Unit,
     onDeleteGroup: (Long) -> Unit,
     onSyncGroup: (ProxyGroup) -> Unit,
+    onImportText: (String) -> Unit = {},
+    onNotice: (String) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val strings = LocalAppStrings.current
     var editingGroup by remember { mutableStateOf<ProxyGroup?>(null) }
+    var showQrScanner by remember { mutableStateOf(false) }
 
     Column(
         modifier = modifier
@@ -79,6 +84,12 @@ fun GroupsScreen(
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+            }
+            IconButton(
+                onClick = { showQrScanner = true },
+                modifier = Modifier.testTag("groups_scan_qr_button"),
+            ) {
+                Icon(Icons.Default.QrCodeScanner, contentDescription = strings.scanQrCode)
             }
             FilledTonalButton(
                 onClick = { editingGroup = ProxyGroup(name = "", isSubscription = true) },
@@ -213,6 +224,14 @@ fun GroupsScreen(
                 onSaveGroup(it)
                 editingGroup = null
             },
+        )
+    }
+
+    if (showQrScanner) {
+        QrScannerDialog(
+            onQrScanned = { decoded -> onImportText(decoded) },
+            onError = onNotice,
+            onDismiss = { showQrScanner = false },
         )
     }
 }

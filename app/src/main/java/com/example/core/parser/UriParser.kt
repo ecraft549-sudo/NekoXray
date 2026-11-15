@@ -12,11 +12,126 @@ import org.json.JSONObject
 import java.net.URLDecoder
 import java.net.URLEncoder
 
+data class ParsedSubscription(
+    val url: String,
+    val name: String,
+)
+
 /**
  * Ported and upgraded from NekoBoxForAndroid (V2RayFmt, TrojanFmt, ShadowsocksFmt, WireGuardFmt)
  * for Xray-core v26.10.31 with first-class REALITY & XHTTP (SplitHTTP) URI support.
  */
 object UriParser {
+
+    private val explicitProxyPorts = setOf(1080, 1081, 3128, 8080, 8081, 8118, 8888, 9050)
+
+    fun parseSubscriptions(rawInput: String): List<ParsedSubscription> {
+        val trimmed = rawInput.trim()
+        if (trimmed.isEmpty() || (trimmed.startsWith("{") && trimmed.endsWith("}"))) {
+            return emptyList()
+        }
+        return trimmed.lines()
+            .map { it.trim() }
+            .filter { it.isNotEmpty() && !it.startsWith("#") }
+            .mapNotNull { parseSubscriptionLink(it) }
+            .distinctBy { it.url }
+    }
+
+    fun parseSubscriptionLink(link: String): ParsedSubscription? {
+        val trimmed = link.trim()
+        if (trimmed.isEmpty()) return null
+        return runCatching {
+            when {
+                trimmed.startsWith("sub://", ignoreCase = true) -> {
+                    val withoutScheme = trimmed.substring(6)
+                    val mainPart = withoutScheme.substringBefore("#")
+                    val fragName = withoutScheme.substringAfter("#", "").let { urlDecode(it) }.trim()
+                    val decoded = if (mainPart.startsWith("http://", true) || mainPart.startsWith("https://", true)) {
+                        mainPart
+                    } else {
+                        tryDecodeBase64(mainPart)?.trim()
+                    }
+                    if (!decoded.isNullOrBlank() &&
+                        (decoded.startsWith("http://", true) || decoded.startsWith("https://", true))
+                    ) {
+                        val inner = Uri.parse(decoded)
+                        val innerFrag = inner.fragment?.let { urlDecode(it) }.orEmpty().trim()
+                        val cleanUrl = decoded.substringBefore("#").trim()
+                        val finalName = fragName.ifBlank { innerFrag }.ifBlank { inner.host.orEmpty() }.ifBlank { "Subscription" }
+                        ParsedSubscription(url = cleanUrl, name = finalName)
+                    } else {
+                        null
+                    }
+                }
+
+                trimmed.startsWith("v2rayng://", ignoreCase = true) ||
+                    trimmed.startsWith("clash://", ignoreCase = true) ||
+                    trimmed.startsWith("sing-box://", ignoreCase = true) ||
+                    trimmed.startsWith("nekoray://", ignoreCase = true) ||
+                    trimmed.startsWith("nekobox://", ignoreCase = true) -> {
+                    val uri = Uri.parse(trimmed)
+                    val rawTarget = uri.getQueryParameter("url").orEmpty().trim()
+                    if (rawTarget.startsWith("http://", true) || rawTarget.startsWith("https://", true)) {
+                        val targetUri = Uri.parse(rawTarget)
+                        val name = uri.getQueryParameter("name")?.trim().orEmpty()
+                            .ifBlank { uri.fragment?.let { urlDecode(it) }?.trim().orEmpty() }
+                            .ifBlank { targetUri.fragment?.let { urlDecode(it) }?.trim().orEmpty() }
+                            .ifBlank { targetUri.host.orEmpty() }
+                            .ifBlank { "Subscription" }
+                        ParsedSubscription(url = rawTarget.substringBefore("#").trim(), name = name)
+                    } else {
+                        null
+                    }
+                }
+
+                trimmed.startsWith("happ://add/", ignoreCase = true) -> {
+                    val rawSegment = trimmed.substringAfter("happ://add/", "").trim()
+                    val rawTarget = if (rawSegment.startsWith("http://", true) || rawSegment.startsWith("https://", true)) {
+                        rawSegment
+                    } else {
+                        urlDecode(rawSegment).trim()
+                    }
+                    if (rawTarget.startsWith("http://", true) || rawTarget.startsWith("https://", true)) {
+                        val targetUri = Uri.parse(rawTarget)
+                        val name = targetUri.fragment?.let { urlDecode(it) }?.trim().orEmpty()
+                            .ifBlank { targetUri.host.orEmpty() }
+                            .ifBlank { "Subscription" }
+                        ParsedSubscription(url = rawTarget.substringBefore("#").trim(), name = name)
+                    } else {
+                        null
+                    }
+                }
+
+                trimmed.startsWith("https://", ignoreCase = true) ||
+                    trimmed.startsWith("http://", ignoreCase = true) -> {
+                    val uri = Uri.parse(trimmed)
+                    val host = uri.host.orEmpty()
+                    if (host.isBlank()) return@runCatching null
+
+                    val isHttps = trimmed.startsWith("https://", ignoreCase = true)
+                    val path = uri.encodedPath.orEmpty()
+                    val query = uri.encodedQuery.orEmpty()
+                    val hasRootOnlyPath = path.isEmpty() || path == "/"
+                    val hasUserInfo = !uri.userInfo.isNullOrBlank()
+                    val isProxyPortOnHttp = !isHttps && uri.port in explicitProxyPorts
+
+                    // Treat bare http(s)://user:pass@host:port or http://host:3128|8080 (with no path/query) as HTTP proxy
+                    if (hasRootOnlyPath && query.isEmpty() && (hasUserInfo || isProxyPortOnHttp)) {
+                        return@runCatching null
+                    }
+
+                    val fragName = uri.fragment?.let { urlDecode(it) }.orEmpty().trim()
+                    val cleanUrl = trimmed.substringBefore("#").trim()
+                    ParsedSubscription(
+                        url = cleanUrl,
+                        name = fragName.ifBlank { host },
+                    )
+                }
+
+                else -> null
+            }
+        }.getOrNull()
+    }
 
     fun parseBatch(rawInput: String, groupId: Long = 1L): List<ProxyProfile> {
         val trimmed = rawInput.trim()
@@ -42,6 +157,7 @@ object UriParser {
     fun parseSingle(link: String, groupId: Long = 1L): ProxyProfile? {
         val trimmed = link.trim()
         if (trimmed.isEmpty()) return null
+        if (parseSubscriptionLink(trimmed) != null) return null
         return runCatching {
             when {
                 trimmed.startsWith("vless://", ignoreCase = true) -> parseVless(trimmed, groupId)
