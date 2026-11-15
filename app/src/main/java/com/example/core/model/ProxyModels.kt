@@ -212,6 +212,8 @@ data class XraySettings(
     val ipv6Mode: IPv6Mode = IPv6Mode.ENABLE,
     val remoteDns: String = "https://1.1.1.1/dns-query",
     val directDns: String = "8.8.8.8",
+    val directDnsEnabled: Boolean = true,
+    val protectDirectDns: Boolean = true,
     val bypassLan: Boolean = true,
     val sniffingEnabled: Boolean = true,
     val routeOnly: Boolean = false,

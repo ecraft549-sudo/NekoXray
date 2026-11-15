@@ -89,6 +89,10 @@ object XrayConfigBuilder {
             val directDnsServer = settings.directDns.trim()
                 .takeIf { it.isNotBlank() && !it.equals("localhost", ignoreCase = true) }
                 ?: "8.8.8.8"
+            val effectiveDirectDnsAddress = resolveEffectiveDirectDnsAddress(
+                raw = directDnsServer,
+                protectDoh = settings.protectDirectDns,
+            )
             val remoteDnsServer = settings.remoteDns.ifBlank { "https://1.1.1.1/dns-query" }
             val directRuleDomains = rules
                 .filter { it.enabled && it.action == RouteAction.DIRECT }
@@ -106,6 +110,9 @@ object XrayConfigBuilder {
                 settings.ipv6Mode.wireStrategy
             }
 
+            val serverHost = profile.serverAddress.trim()
+            val needsServerBootstrapDns = serverHost.isNotBlank() && !isIpLiteral(serverHost)
+
             putJsonObject("dns") {
                 put("queryStrategy", effectiveQueryStrategy)
                 putJsonArray("servers") {
@@ -114,21 +121,32 @@ object XrayConfigBuilder {
                         add("tcp://8.8.8.8:53")
                     }
                     add(remoteDnsServer)
-                    addJsonObject {
-                        put("address", directDnsServer)
-                        putJsonArray("domains") {
-                            if (hasGeoSite) {
-                                add("geosite:private")
-                            } else {
-                                add("domain:local")
+                    if (settings.directDnsEnabled) {
+                        addJsonObject {
+                            put("address", effectiveDirectDnsAddress)
+                            putJsonArray("domains") {
+                                if (hasGeoSite) {
+                                    add("geosite:private")
+                                } else {
+                                    add("domain:local")
+                                }
+                                if (needsServerBootstrapDns) {
+                                    add("full:$serverHost")
+                                }
+                                directRuleDomains.forEach { add(it) }
                             }
-                            val serverHost = profile.serverAddress.trim()
-                            if (serverHost.isNotBlank() && !isIpLiteral(serverHost)) {
+                            put("skipFallback", true)
+                        }
+                    } else if (needsServerBootstrapDns) {
+                        // When Direct DNS is disabled for user traffic, still bootstrap the proxy server's own hostname
+                        // so Xray can establish the tunnel without a circular DNS dependency.
+                        addJsonObject {
+                            put("address", effectiveDirectDnsAddress)
+                            putJsonArray("domains") {
                                 add("full:$serverHost")
                             }
-                            directRuleDomains.forEach { add(it) }
+                            put("skipFallback", true)
                         }
-                        put("skipFallback", true)
                     }
                 }
             }
@@ -254,12 +272,25 @@ object XrayConfigBuilder {
                     }
 
                     val remoteDnsHost = extractHostFromUrl(remoteDnsServer)
-                    if (isIpLiteral(directDnsServer) && !directDnsServer.equals(remoteDnsHost, ignoreCase = true)) {
+                    val directDnsHost = extractHostFromUrl(directDnsServer)
+                    if (
+                        (settings.directDnsEnabled || needsServerBootstrapDns) &&
+                        isIpLiteral(directDnsHost) &&
+                        !directDnsHost.equals(remoteDnsHost, ignoreCase = true)
+                    ) {
                         addJsonObject {
                             put("type", "field")
-                            putJsonArray("ip") { add(directDnsServer) }
+                            putJsonArray("ip") { add(directDnsHost) }
                             put("port", "53")
                             put("outboundTag", "direct")
+                        }
+                        if (effectiveDirectDnsAddress.startsWith("https", ignoreCase = true)) {
+                            addJsonObject {
+                                put("type", "field")
+                                putJsonArray("ip") { add(directDnsHost) }
+                                put("port", "443")
+                                put("outboundTag", "direct")
+                            }
                         }
                     }
 
@@ -782,6 +813,47 @@ object XrayConfigBuilder {
             }
             else -> trimmed
         }
+    }
+
+    fun resolveEffectiveDirectDnsAddress(raw: String, protectDoh: Boolean): String {
+        val cleaned = raw.trim().takeIf { it.isNotBlank() && !it.equals("localhost", ignoreCase = true) }
+            ?: "8.8.8.8"
+        if (!protectDoh) {
+            return if (cleaned.startsWith("https+local://", ignoreCase = true)) {
+                val host = extractHostFromUrl(cleaned)
+                if (isIpLiteral(host)) host else "https://" + cleaned.substringAfter("://")
+            } else {
+                cleaned
+            }
+        }
+        val lower = cleaned.lowercase()
+        return when {
+            lower.startsWith("https+local://") || lower.startsWith("quic+local://") -> cleaned
+            lower.startsWith("https://") -> "https+local://" + cleaned.substringAfter("://")
+            lower.startsWith("tcp://") || lower.startsWith("tcp+local://") -> cleaned
+            isIpLiteral(cleaned) -> {
+                if (isPrivateOrLoopbackIp(cleaned)) {
+                    cleaned
+                } else {
+                    val hostLiteral = if (cleaned.contains(':') && !cleaned.startsWith("[")) "[$cleaned]" else cleaned
+                    "https+local://$hostLiteral/dns-query"
+                }
+            }
+            else -> cleaned
+        }
+    }
+
+    private fun isPrivateOrLoopbackIp(ip: String): Boolean {
+        val normalized = ip.trim().removePrefix("[").removeSuffix("]").lowercase()
+        return normalized.startsWith("10.") ||
+            normalized.startsWith("192.168.") ||
+            normalized.startsWith("127.") ||
+            normalized.startsWith("169.254.") ||
+            normalized == "::1" ||
+            normalized.startsWith("fe80:") ||
+            normalized.startsWith("fc") ||
+            normalized.startsWith("fd") ||
+            Regex("^172\\.(1[6-9]|2\\d|3[0-1])\\..*").matches(normalized)
     }
 
     private fun extractHostFromUrl(urlOrHost: String): String {

@@ -1336,4 +1336,97 @@ class XrayRealityTest {
             controller.destroy()
         }
     }
+
+    @Test
+    fun `direct dns is optional but enabled by default with anti-spoofing doh protection`() {
+        val defaultSettings = XraySettings()
+        assertEquals("Expected directDnsEnabled to be true by default", true, defaultSettings.directDnsEnabled)
+        assertEquals("Expected protectDirectDns to be true by default", true, defaultSettings.protectDirectDns)
+
+        val ruRule = com.example.core.model.RoutingRule(
+            id = 2L,
+            name = "Direct Local / RU Domains",
+            enabled = true,
+            domains = "domain:.ru,ya.ru,geosite:category-ru",
+            ips = "geoip:ru",
+            action = com.example.core.model.RouteAction.DIRECT,
+            priority = 2,
+        )
+        val hostnameProfile = com.example.core.model.ProxyProfile(
+            protocol = ProxyProtocol.VLESS,
+            serverAddress = "vpn.example.com",
+            serverPort = 443,
+            uuid = "32622b0f-1a68-4e38-a7f7-a557edc26979",
+            security = SecurityType.REALITY,
+            sni = "www.nvidia.com",
+            realityPublicKey = "t4Xs-5ksSsv71Pvg-FeYxeAE2ZL7ggkXiuNfhSPMdCk",
+        )
+
+        // 1. Default settings: Direct DNS enabled + DoH protection upgrades 8.8.8.8 -> https+local://8.8.8.8/dns-query
+        val defaultJson = JSONObject(
+            XrayConfigBuilder.buildConfigJson(
+                profile = hostnameProfile,
+                settings = defaultSettings,
+                rules = listOf(ruRule),
+            )
+        )
+        val defaultServers = defaultJson.getJSONObject("dns").getJSONArray("servers")
+        assertEquals(2, defaultServers.length())
+        val directServerObj = defaultServers.getJSONObject(1)
+        assertEquals("https+local://8.8.8.8/dns-query", directServerObj.getString("address"))
+        val directDomainsStr = directServerObj.getJSONArray("domains").toString()
+        assertTrue(directDomainsStr.contains("geosite:private"))
+        assertTrue(directDomainsStr.contains("full:vpn.example.com"))
+        assertTrue(directDomainsStr.contains("domain:ru"))
+
+        val defaultRules = defaultJson.getJSONObject("routing").getJSONArray("rules")
+        val defaultRuleList = (0 until defaultRules.length()).map { defaultRules.getJSONObject(it) }
+        assertTrue(
+            "Expected direct port 443 bypass rule for DoH Direct DNS",
+            defaultRuleList.any {
+                it.optString("outboundTag") == "direct" &&
+                    it.optString("port") == "443" &&
+                    it.optJSONArray("ip")?.toString()?.contains("8.8.8.8") == true
+            },
+        )
+
+        // 2. When protectDirectDns = false: plain 8.8.8.8 is used
+        val plainDirectJson = JSONObject(
+            XrayConfigBuilder.buildConfigJson(
+                profile = hostnameProfile,
+                settings = defaultSettings.copy(protectDirectDns = false),
+                rules = listOf(ruRule),
+            )
+        )
+        val plainDirectObj = plainDirectJson.getJSONObject("dns").getJSONArray("servers").getJSONObject(1)
+        assertEquals("8.8.8.8", plainDirectObj.getString("address"))
+
+        // 3. When directDnsEnabled = false with hostname server: only full:vpn.example.com bootstrap is kept,
+        // while all user DIRECT rule domains and geosite:private resolve exclusively via encrypted Remote DNS
+        val disabledHostnameJson = JSONObject(
+            XrayConfigBuilder.buildConfigJson(
+                profile = hostnameProfile,
+                settings = defaultSettings.copy(directDnsEnabled = false),
+                rules = listOf(ruRule),
+            )
+        )
+        val bootstrapObj = disabledHostnameJson.getJSONObject("dns").getJSONArray("servers").getJSONObject(1)
+        val bootstrapDomains = bootstrapObj.getJSONArray("domains").toString()
+        assertTrue(bootstrapDomains.contains("full:vpn.example.com"))
+        assertTrue(!bootstrapDomains.contains("domain:ru"))
+        assertTrue(!bootstrapDomains.contains("geosite:private"))
+
+        // 4. When directDnsEnabled = false with IP-literal server: only Remote DNS server is in dns.servers
+        val ipProfile = hostnameProfile.copy(serverAddress = "203.0.113.10")
+        val disabledIpJson = JSONObject(
+            XrayConfigBuilder.buildConfigJson(
+                profile = ipProfile,
+                settings = defaultSettings.copy(directDnsEnabled = false),
+                rules = listOf(ruRule),
+            )
+        )
+        val ipServers = disabledIpJson.getJSONObject("dns").getJSONArray("servers")
+        assertEquals(1, ipServers.length())
+        assertEquals("https://1.1.1.1/dns-query", ipServers.getString(0))
+    }
 }

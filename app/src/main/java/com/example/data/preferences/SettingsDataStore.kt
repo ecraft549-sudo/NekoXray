@@ -30,6 +30,8 @@ class SettingsDataStore(private val context: Context) {
         val IPV6_MODE = stringPreferencesKey("ipv6_mode")
         val REMOTE_DNS = stringPreferencesKey("remote_dns")
         val DIRECT_DNS = stringPreferencesKey("direct_dns")
+        val DIRECT_DNS_ENABLED = booleanPreferencesKey("direct_dns_enabled")
+        val PROTECT_DIRECT_DNS = booleanPreferencesKey("protect_direct_dns")
         val BYPASS_LAN = booleanPreferencesKey("bypass_lan")
         val SNIFFING_ENABLED = booleanPreferencesKey("sniffing_enabled")
         val ROUTE_ONLY = booleanPreferencesKey("route_only")
@@ -61,6 +63,8 @@ class SettingsDataStore(private val context: Context) {
         }.getOrDefault(IPv6Mode.ENABLE),
         remoteDns = prefs[Keys.REMOTE_DNS] ?: "https://1.1.1.1/dns-query",
         directDns = prefs[Keys.DIRECT_DNS] ?: "8.8.8.8",
+        directDnsEnabled = prefs[Keys.DIRECT_DNS_ENABLED] ?: true,
+        protectDirectDns = prefs[Keys.PROTECT_DIRECT_DNS] ?: true,
         bypassLan = prefs[Keys.BYPASS_LAN] ?: true,
         sniffingEnabled = prefs[Keys.SNIFFING_ENABLED] ?: true,
         routeOnly = prefs[Keys.ROUTE_ONLY] ?: false,
@@ -113,6 +117,8 @@ class SettingsDataStore(private val context: Context) {
             prefs[Keys.IPV6_MODE] = updated.ipv6Mode.name
             prefs[Keys.REMOTE_DNS] = updated.remoteDns
             prefs[Keys.DIRECT_DNS] = updated.directDns
+            prefs[Keys.DIRECT_DNS_ENABLED] = updated.directDnsEnabled
+            prefs[Keys.PROTECT_DIRECT_DNS] = updated.protectDirectDns
             prefs[Keys.BYPASS_LAN] = updated.bypassLan
             prefs[Keys.SNIFFING_ENABLED] = updated.sniffingEnabled
             prefs[Keys.ROUTE_ONLY] = updated.routeOnly

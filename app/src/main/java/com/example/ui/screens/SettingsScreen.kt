@@ -351,15 +351,53 @@ fun SettingsScreen(
                         onValueChange = { v -> onUpdateSettings { it.copy(remoteDns = v) } },
                         label = { Text(strings.remoteDnsLabel) },
                         singleLine = true,
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("remote_dns_input"),
                     )
-                    OutlinedTextField(
-                        value = s.directDns,
-                        onValueChange = { v -> onUpdateSettings { it.copy(directDns = v) } },
-                        label = { Text(strings.directDnsLabel) },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth(),
+                    SettingToggle(
+                        title = strings.directDnsEnabledTitle,
+                        subtitle = strings.directDnsEnabledSubtitle,
+                        checked = s.directDnsEnabled,
+                        onCheckedChange = { c -> onUpdateSettings { it.copy(directDnsEnabled = c) } },
+                        toggleTestTag = "direct_dns_enabled_toggle",
                     )
+                    if (s.directDnsEnabled) {
+                        OutlinedTextField(
+                            value = s.directDns,
+                            onValueChange = { v -> onUpdateSettings { it.copy(directDns = v) } },
+                            label = { Text(strings.directDnsLabel) },
+                            singleLine = true,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("direct_dns_input"),
+                        )
+                        val directPresets = listOf(
+                            "8.8.8.8" to "Google (8.8.8.8)",
+                            "77.88.8.8" to "Yandex (77.88.8.8)",
+                            "1.1.1.1" to "Cloudflare (1.1.1.1)",
+                            "9.9.9.9" to "Quad9 (9.9.9.9)",
+                        )
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            directPresets.forEach { (presetValue, presetLabel) ->
+                                FilterChip(
+                                    selected = s.directDns.trim() == presetValue,
+                                    onClick = { onUpdateSettings { it.copy(directDns = presetValue) } },
+                                    label = { Text(presetLabel, maxLines = 1, softWrap = false) },
+                                )
+                            }
+                        }
+                        SettingToggle(
+                            title = strings.protectDirectDnsTitle,
+                            subtitle = strings.protectDirectDnsSubtitle,
+                            checked = s.protectDirectDns,
+                            onCheckedChange = { c -> onUpdateSettings { it.copy(protectDirectDns = c) } },
+                            toggleTestTag = "protect_direct_dns_toggle",
+                        )
+                    }
                     SettingToggle(
                         title = strings.bypassLanTitle,
                         subtitle = strings.bypassLanSubtitle,
