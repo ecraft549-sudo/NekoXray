@@ -197,6 +197,8 @@ class ScreenshotGeneratorTest {
                 status = TunnelStatus.CONNECTED,
                 isNativeCoreLinked = true,
                 nativeCoreVersion = "v26.10.31",
+                hasGeoIp = true,
+                hasGeoSite = true,
                 activeProfileId = 1L,
                 activeProfileName = "Frankfurt REALITY · Vision",
                 activeProtocolLabel = "VLESS · REALITY · TCP",

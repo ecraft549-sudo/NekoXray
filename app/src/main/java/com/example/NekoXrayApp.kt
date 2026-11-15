@@ -19,6 +19,7 @@ class NekoXrayApp : Application() {
     override fun onCreate() {
         super.onCreate()
         appScope.launch {
+            com.example.core.xray.XrayAssetHelper.ensureInitialized(this@NekoXrayApp)
             repository.ensureDefaults()
             com.example.core.widget.NekoWidgetManager.refreshAll(this@NekoXrayApp)
         }

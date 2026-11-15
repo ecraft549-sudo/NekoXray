@@ -128,6 +128,7 @@ class NekoRepository(
         }
         val ctx = appContext
         val xrayDelayMs = if (ctx != null) {
+            val geo = com.example.core.xray.XrayAssetHelper.ensureInitialized(ctx)
             val settings = runCatching { settingsFlow.first() }.getOrDefault(XraySettings())
             val rules = runCatching { routingRulesFlow.first() }.getOrDefault(emptyList())
             val configJson = XrayConfigBuilder.buildConfigJson(
@@ -135,6 +136,8 @@ class NekoRepository(
                 settings = settings,
                 rules = rules,
                 includeTunInbound = false,
+                hasGeoIp = geo.hasGeoIp,
+                hasGeoSite = geo.hasGeoSite,
             )
             NetworkTester.testXrayOutboundDelay(ctx, configJson)
         } else {
@@ -219,5 +222,14 @@ class NekoRepository(
         profile: ProxyProfile,
         settings: XraySettings,
         rules: List<RoutingRule>,
-    ): String = XrayConfigBuilder.buildConfigJson(profile, settings, rules)
+    ): String {
+        val geo = appContext?.let { com.example.core.xray.XrayAssetHelper.currentStatus(it) }
+        return XrayConfigBuilder.buildConfigJson(
+            profile = profile,
+            settings = settings,
+            rules = rules,
+            hasGeoIp = geo?.hasGeoIp ?: true,
+            hasGeoSite = geo?.hasGeoSite ?: true,
+        )
+    }
 }

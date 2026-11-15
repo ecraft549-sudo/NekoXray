@@ -143,8 +143,73 @@ val downloadLibv2ray by tasks.registering(DownloadLibv2rayTask::class) {
   outputFile.set(layout.projectDirectory.file("libs/libv2ray.aar"))
 }
 
+abstract class DownloadGeoAssetsTask : DefaultTask() {
+  @get:OutputFile
+  abstract val geoIpFile: RegularFileProperty
+
+  @get:OutputFile
+  abstract val geoSiteFile: RegularFileProperty
+
+  private fun downloadWithRedirects(url: String, dest: File) {
+    if (dest.exists() && dest.length() > 0L) return
+    dest.parentFile.mkdirs()
+    val tmp = File(dest.parentFile, "${dest.name}.part")
+    var currentUrl = url
+    var redirects = 0
+    while (redirects < 6) {
+      val conn = (URI(currentUrl).toURL().openConnection() as HttpURLConnection).apply {
+        instanceFollowRedirects = false
+        connectTimeout = 20_000
+        readTimeout = 120_000
+        setRequestProperty("User-Agent", "Gradle-NekoXray-GeoAssets")
+      }
+      val code = conn.responseCode
+      if (code in 300..399) {
+        currentUrl = conn.getHeaderField("Location")
+          ?: error("Redirect without Location header from $currentUrl")
+        conn.disconnect()
+        redirects++
+      } else if (code in 200..299) {
+        conn.inputStream.use { inp ->
+          tmp.outputStream().use { out ->
+            inp.copyTo(out)
+          }
+        }
+        conn.disconnect()
+        if (tmp.length() <= 0L) error("Downloaded empty file from $url")
+        if (!tmp.renameTo(dest)) {
+          tmp.copyTo(dest, overwrite = true)
+          tmp.delete()
+        }
+        return
+      } else {
+        conn.disconnect()
+        error("Failed to download $url: HTTP $code")
+      }
+    }
+    error("Too many redirects downloading $url")
+  }
+
+  @TaskAction
+  fun download() {
+    downloadWithRedirects(
+      "https://github.com/v2fly/geoip/releases/latest/download/geoip.dat",
+      geoIpFile.get().asFile,
+    )
+    downloadWithRedirects(
+      "https://github.com/v2fly/domain-list-community/releases/latest/download/dlc.dat",
+      geoSiteFile.get().asFile,
+    )
+  }
+}
+
+val downloadGeoAssets by tasks.registering(DownloadGeoAssetsTask::class) {
+  geoIpFile.set(layout.projectDirectory.file("src/main/assets/geoip.dat"))
+  geoSiteFile.set(layout.projectDirectory.file("src/main/assets/geosite.dat"))
+}
+
 tasks.named("preBuild") {
-  dependsOn(downloadLibv2ray)
+  dependsOn(downloadLibv2ray, downloadGeoAssets)
 }
 
 // Some unused dependencies are commented out below instead of being removed.

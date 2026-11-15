@@ -26,7 +26,12 @@ No source code from GPL-licensed projects (such as NekoBoxForAndroid) is include
 - **License:** Revised BSD License (**BSD-3-Clause**)
 - **Usage:** Pure-Java SSH2 client powering `SshTunnelBridge`.
 
-## 4. Open-Source Libraries under Apache License 2.0
+## 4. Routing Geo Data (`geoip.dat` & `geosite.dat`)
+- **`v2fly/geoip` (`geoip.dat`):** https://github.com/v2fly/geoip — Creative Commons Attribution-ShareAlike 4.0 International (**CC-BY-SA-4.0**)
+- **`v2fly/domain-list-community` (`dlc.dat` / `geosite.dat`):** https://github.com/v2fly/domain-list-community — **MIT License**
+- **Usage:** Downloaded automatically at build time (`DownloadGeoAssetsTask` in `app/build.gradle.kts`) into `app/src/main/assets/` and unpacked on first launch for Xray routing rules (`geoip:private`, `geosite:private`, `geosite:category-ads-all`, etc.).
+
+## 5. Open-Source Libraries under Apache License 2.0
 - **AndroidX / Jetpack Compose / Material 3 / Room / CameraX / DataStore / Navigation:** Apache-2.0
 - **Kotlin Standard Library, Kotlin Coroutines, kotlinx.serialization:** Apache-2.0
 - **OkHttp (`com.squareup.okhttp3`):** Apache-2.0

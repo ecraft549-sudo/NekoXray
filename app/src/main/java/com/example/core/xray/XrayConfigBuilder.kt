@@ -34,12 +34,25 @@ object XrayConfigBuilder {
 
     private val prettyJson = Json { prettyPrint = true }
 
+    private val PRIVATE_CIDRS = listOf(
+        "10.0.0.0/8",
+        "172.16.0.0/12",
+        "192.168.0.0/16",
+        "127.0.0.0/8",
+        "169.254.0.0/16",
+        "fc00::/7",
+        "fe80::/10",
+        "::1/128",
+    )
+
     fun buildConfigJson(
         profile: ProxyProfile,
         settings: XraySettings,
         rules: List<RoutingRule>,
         includeTunInbound: Boolean = settings.serviceMode == ServiceMode.VPN,
         sshLocalBridgePort: Int = 0,
+        hasGeoIp: Boolean = true,
+        hasGeoSite: Boolean = true,
     ): String {
         if (profile.protocol == ProxyProtocol.CUSTOM_JSON && profile.customConfigJson.isNotBlank()) {
             return runCatching {
@@ -81,7 +94,7 @@ object XrayConfigBuilder {
                 .filter { it.enabled && it.action == RouteAction.DIRECT }
                 .flatMap { splitItems(it.domains) }
                 .map { normalizeDomainPattern(it) }
-                .filter { it.isNotBlank() }
+                .filter { it.isNotBlank() && (hasGeoSite || !it.startsWith("geosite:", ignoreCase = true)) }
                 .distinct()
 
             val effectiveQueryStrategy = if (
@@ -104,7 +117,11 @@ object XrayConfigBuilder {
                     addJsonObject {
                         put("address", directDnsServer)
                         putJsonArray("domains") {
-                            add("geosite:private")
+                            if (hasGeoSite) {
+                                add("geosite:private")
+                            } else {
+                                add("domain:local")
+                            }
                             val serverHost = profile.serverAddress.trim()
                             if (serverHost.isNotBlank() && !isIpLiteral(serverHost)) {
                                 add("full:$serverHost")
@@ -250,7 +267,11 @@ object XrayConfigBuilder {
                         addJsonObject {
                             put("type", "field")
                             putJsonArray("ip") {
-                                add("geoip:private")
+                                if (hasGeoIp) {
+                                    add("geoip:private")
+                                } else {
+                                    PRIVATE_CIDRS.forEach { add(it) }
+                                }
                             }
                             put("outboundTag", "direct")
                         }
@@ -259,9 +280,10 @@ object XrayConfigBuilder {
                     rules.filter { it.enabled }.sortedBy { it.priority }.forEach { rule ->
                         val domainList = splitItems(rule.domains)
                             .map { normalizeDomainPattern(it) }
-                            .filter { it.isNotBlank() }
+                            .filter { it.isNotBlank() && (hasGeoSite || !it.startsWith("geosite:", ignoreCase = true)) }
                             .distinct()
                         val ipList = splitItems(rule.ips)
+                            .filter { hasGeoIp || !it.startsWith("geoip:", ignoreCase = true) }
                         val protoList = splitItems(rule.protocols)
 
                         if (domainList.isNotEmpty() && ipList.isNotEmpty()) {

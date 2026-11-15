@@ -36,6 +36,8 @@ data class EngineRuntimeState(
     val activeConfigJson: String = "",
     val nativeCoreVersion: String? = null,
     val isNativeCoreLinked: Boolean = false,
+    val hasGeoIp: Boolean = false,
+    val hasGeoSite: Boolean = false,
     val lastError: String? = null,
     val logs: List<LogEntry> = emptyList(),
 )
@@ -126,6 +128,10 @@ object XrayEngineState {
             val updated = (current.logs + entry).takeLast(200)
             current.copy(logs = updated)
         }
+    }
+
+    fun updateGeoAssets(hasGeoIp: Boolean, hasGeoSite: Boolean) {
+        _state.update { it.copy(hasGeoIp = hasGeoIp, hasGeoSite = hasGeoSite) }
     }
 
     fun clearLogs() {

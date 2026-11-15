@@ -932,4 +932,149 @@ class XrayRealityTest {
         assertEquals(ProxyProtocol.HTTP, parsedSquid[0].protocol)
         assertEquals(3128, parsedSquid[0].serverPort)
     }
+
+    @Test
+    fun `libv2ray aar and app assets geo dat files unpack cleanly with explicit first-launch log`() {
+        val context = androidx.test.core.app.ApplicationProvider.getApplicationContext<android.content.Context>()
+
+        // 1. Inspect libv2ray.aar directly: v26.10.31 AAR bundles upstream AndroidLibXrayLite assets/*.dat
+        val candidates = listOf(
+            java.io.File("libs/libv2ray.aar"),
+            java.io.File("app/libs/libv2ray.aar"),
+        )
+        val aarFile = candidates.firstOrNull { it.exists() }
+        assertNotNull("Expected libs/libv2ray.aar to exist", aarFile)
+        val datEntries = java.util.zip.ZipFile(aarFile!!).use { zip ->
+            zip.entries().asSequence()
+                .filter { it.name.endsWith(".dat", ignoreCase = true) }
+                .associate { it.name to it.size }
+        }
+        assertTrue("Expected assets/geoip.dat in libv2ray.aar, got: ${datEntries.keys}", "assets/geoip.dat" in datEntries)
+        assertTrue("Expected assets/geosite.dat in libv2ray.aar, got: ${datEntries.keys}", "assets/geosite.dat" in datEntries)
+        assertTrue(
+            "Expected assets/geoip-only-cn-private.dat in libv2ray.aar, got: ${datEntries.keys}",
+            "assets/geoip-only-cn-private.dat" in datEntries,
+        )
+
+        // 2. Verify app-level v2fly geoip.dat & geosite.dat were downloaded by Gradle :app:downloadGeoAssets
+        val appAssetsDir = listOf(
+            java.io.File("src/main/assets"),
+            java.io.File("app/src/main/assets"),
+        ).firstOrNull { it.isDirectory }
+        assertNotNull("Expected app/src/main/assets to exist after downloadGeoAssets", appAssetsDir)
+        assertTrue(java.io.File(appAssetsDir, "geoip.dat").length() > 100_000L)
+        assertTrue(java.io.File(appAssetsDir, "geosite.dat").length() > 100_000L)
+
+        // 3. Verify XrayAssetHelper extracts bundled geoip.dat & geosite.dat and logs on first launch
+        com.example.core.xray.XrayAssetHelper.resetForTest()
+        com.example.core.vpn.XrayEngineState.clearLogs()
+        val status = com.example.core.xray.XrayAssetHelper.ensureInitialized(context)
+        assertTrue("Expected geoip.dat to be bundled and unpacked", status.hasGeoIp)
+        assertTrue("Expected geosite.dat to be bundled and unpacked", status.hasGeoSite)
+        assertTrue(status.geoIpBytes > 100_000L)
+        assertTrue(status.geoSiteBytes > 100_000L)
+        assertTrue(java.io.File(context.filesDir, "geoip.dat").length() > 100_000L)
+        assertTrue(java.io.File(context.filesDir, "geosite.dat").length() > 100_000L)
+        assertTrue(com.example.core.vpn.XrayEngineState.state.value.hasGeoIp)
+        assertTrue(com.example.core.vpn.XrayEngineState.state.value.hasGeoSite)
+        val okLogs = com.example.core.vpn.XrayEngineState.state.value.logs
+        assertTrue(
+            "Expected INFO log for Xray geo assets initialization, got: $okLogs",
+            okLogs.any { it.level == "INFO" && it.message.contains("geoip.dat") && it.message.contains("geosite.dat") },
+        )
+
+        // 4. Verify missing .dat files emit explicit WARN log instead of failing silently
+        val emptyDir = java.io.File(context.cacheDir, "empty_geo_test_${System.nanoTime()}").apply { mkdirs() }
+        try {
+            val emptyAssetsCtx = object : android.content.ContextWrapper(context) {
+                override fun getFilesDir(): java.io.File = emptyDir
+                override fun getAssets(): android.content.res.AssetManager {
+                    return android.content.res.AssetManager::class.java.getDeclaredConstructor().apply {
+                        isAccessible = true
+                    }.newInstance()
+                }
+            }
+            com.example.core.xray.XrayAssetHelper.resetForTest()
+            com.example.core.vpn.XrayEngineState.clearLogs()
+            val missingStatus = com.example.core.xray.XrayAssetHelper.ensureInitialized(emptyAssetsCtx)
+            assertEquals(false, missingStatus.hasGeoIp)
+            assertEquals(false, missingStatus.hasGeoSite)
+            val warnLogs = com.example.core.vpn.XrayEngineState.state.value.logs
+            assertTrue(
+                "Expected explicit WARN log when geo assets are missing, got: $warnLogs",
+                warnLogs.any { it.level == "WARN" && it.message.contains("Missing geo assets") },
+            )
+        } finally {
+            com.example.core.xray.XrayAssetHelper.resetForTest()
+            emptyDir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `config builder removes geosite and geoip matchers cleanly when dat assets are unavailable`() {
+        val profile = com.example.core.model.ProxyProfile(
+            protocol = ProxyProtocol.VLESS,
+            serverAddress = "vpn.example.com",
+            serverPort = 443,
+            uuid = "32622b0f-1a68-4e38-a7f7-a557edc26979",
+            security = SecurityType.REALITY,
+            sni = "www.nvidia.com",
+            realityPublicKey = "t4Xs-5ksSsv71Pvg-FeYxeAE2ZL7ggkXiuNfhSPMdCk",
+        )
+        val rules = listOf(
+            com.example.core.model.RoutingRule(
+                id = 1L,
+                name = "Bypass Private / LAN",
+                enabled = true,
+                ips = "geoip:private,192.168.0.0/16",
+                action = com.example.core.model.RouteAction.DIRECT,
+                priority = 1,
+            ),
+            com.example.core.model.RoutingRule(
+                id = 2L,
+                name = "Direct Local / RU Domains",
+                enabled = true,
+                domains = "geosite:category-ru,domain:.ru,ya.ru",
+                ips = "geoip:ru",
+                action = com.example.core.model.RouteAction.DIRECT,
+                priority = 2,
+            ),
+            com.example.core.model.RoutingRule(
+                id = 3L,
+                name = "Block Ads & Trackers",
+                enabled = true,
+                domains = "geosite:category-ads-all",
+                action = com.example.core.model.RouteAction.BLOCK,
+                priority = 3,
+            ),
+        )
+
+        val fallbackJson = XrayConfigBuilder.buildConfigJson(
+            profile = profile,
+            settings = XraySettings(bypassLan = true),
+            rules = rules,
+            hasGeoIp = false,
+            hasGeoSite = false,
+        )
+
+        assertTrue("Fallback config must not contain geoip: references", !fallbackJson.contains("geoip:"))
+        assertTrue("Fallback config must not contain geosite: references", !fallbackJson.contains("geosite:"))
+
+        val root = JSONObject(fallbackJson)
+        val dnsStr = root.getJSONObject("dns").toString()
+        assertTrue(dnsStr.contains("domain:local"))
+
+        val routingRules = root.getJSONObject("routing").getJSONArray("rules")
+        val ruleList = (0 until routingRules.length()).map { routingRules.getJSONObject(it) }
+        // Pure geosite:category-ads-all block rule must be omitted cleanly rather than creating a catch-all block rule
+        assertTrue(ruleList.none { it.optString("outboundTag") == "block" })
+        // Private CIDRs still present in bypassLan direct rule (compare decoded strings, avoiding JSON \/ escaping)
+        assertTrue(
+            ruleList.any { obj ->
+                if (obj.optString("outboundTag") != "direct") return@any false
+                val ips = obj.optJSONArray("ip") ?: return@any false
+                (0 until ips.length()).any { idx -> ips.getString(idx) == "10.0.0.0/8" }
+            }
+        )
+    }
 }

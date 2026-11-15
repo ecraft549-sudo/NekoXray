@@ -69,11 +69,14 @@ object NekoWidgetManager {
         forceProxyOnly: Boolean = false,
     ): Intent {
         val isProxyOnly = forceProxyOnly || settings.serviceMode == ServiceMode.PROXY_ONLY
+        val geo = com.example.core.xray.XrayAssetHelper.currentStatus(context)
         val configJson = XrayConfigBuilder.buildConfigJson(
             profile = profile,
             settings = settings,
             rules = rules,
             includeTunInbound = !isProxyOnly,
+            hasGeoIp = geo.hasGeoIp,
+            hasGeoSite = geo.hasGeoSite,
         )
         return XrayVpnService.buildStartIntent(
             context = context,

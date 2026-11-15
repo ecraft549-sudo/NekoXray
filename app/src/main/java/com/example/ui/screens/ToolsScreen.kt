@@ -109,10 +109,16 @@ fun ToolsScreen(
                     )
                     if (state.engineState.isNativeCoreLinked) {
                         val coreVer = state.engineState.nativeCoreVersion ?: "AndroidLibXrayLite $XRAY_CORE_VERSION"
+                        val geoBadge = when {
+                            state.engineState.hasGeoIp && state.engineState.hasGeoSite -> "geoip.dat & geosite.dat ready"
+                            !state.engineState.hasGeoIp && !state.engineState.hasGeoSite -> "CIDR fallback (.dat missing)"
+                            state.engineState.hasGeoIp -> "geoip.dat ready (geosite fallback)"
+                            else -> "geosite.dat ready (geoip CIDR fallback)"
+                        }
                         Text(
-                            text = "$coreVer (geoip.dat & geosite.dat)",
+                            text = "$coreVer ($geoBadge)",
                             style = MaterialTheme.typography.labelMedium,
-                            color = SignalEmerald,
+                            color = if (state.engineState.hasGeoIp && state.engineState.hasGeoSite) SignalEmerald else SignalAmber,
                         )
                     }
                 }

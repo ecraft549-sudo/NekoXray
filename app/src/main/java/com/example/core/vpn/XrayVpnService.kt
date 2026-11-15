@@ -353,6 +353,7 @@ class XrayVpnService : VpnService() {
                     XrayEngineState.appendLog("INFO", "TUN interface established (172.19.0.1/30, fd=${pfd.fd}, MTU $effectiveMtu).")
 
                     val effectiveConfigJson = if (profile.protocol == ProxyProtocol.SSH) {
+                        val geo = XrayAssetHelper.currentStatus(this@XrayVpnService)
                         val bridge = SshTunnelBridge(profile = profile, vpnService = this@XrayVpnService)
                         val bridgePort = bridge.start()
                         sshTunnelBridge = bridge
@@ -362,6 +363,8 @@ class XrayVpnService : VpnService() {
                             rules = rules,
                             includeTunInbound = true,
                             sshLocalBridgePort = bridgePort,
+                            hasGeoIp = geo.hasGeoIp,
+                            hasGeoSite = geo.hasGeoSite,
                         )
                     } else {
                         configJson
@@ -400,6 +403,7 @@ class XrayVpnService : VpnService() {
                     NekoWidgetManager.refreshAll(this@XrayVpnService)
                 } else {
                     val effectiveConfigJson = if (profile.protocol == ProxyProtocol.SSH) {
+                        val geo = XrayAssetHelper.currentStatus(this@XrayVpnService)
                         val bridge = SshTunnelBridge(profile = profile, vpnService = this@XrayVpnService)
                         val bridgePort = bridge.start()
                         sshTunnelBridge = bridge
@@ -409,6 +413,8 @@ class XrayVpnService : VpnService() {
                             rules = rules,
                             includeTunInbound = false,
                             sshLocalBridgePort = bridgePort,
+                            hasGeoIp = geo.hasGeoIp,
+                            hasGeoSite = geo.hasGeoSite,
                         )
                     } else {
                         configJson
@@ -579,8 +585,8 @@ class XrayVpnService : VpnService() {
     }
 
     private fun startNativeCoreOrThrow(configJson: String, tunFd: Int) {
-        val assetPath = XrayAssetHelper.ensureInitialized(this@XrayVpnService)
-        XrayEngineState.appendLog("INFO", "Initialized Xray core env ($assetPath), starting core loop (tunFd=$tunFd)...")
+        val assetStatus = XrayAssetHelper.ensureInitialized(this@XrayVpnService)
+        XrayEngineState.appendLog("INFO", "Initialized Xray core env (${assetStatus.assetDir}), starting core loop (tunFd=$tunFd)...")
         val callbackHandler = object : CoreCallbackHandler {
             override fun startup(): Long {
                 XrayEngineState.appendLog("CORE", "Xray-core startup callback OK.")

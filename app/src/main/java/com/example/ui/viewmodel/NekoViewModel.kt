@@ -430,12 +430,17 @@ class NekoViewModel(application: Application) : AndroidViewModel(application) {
     fun buildConfigJson(
         profile: ProxyProfile,
         includeTunInbound: Boolean = uiState.value.settings.serviceMode == ServiceMode.VPN,
-    ): String = XrayConfigBuilder.buildConfigJson(
-        profile = profile,
-        settings = uiState.value.settings,
-        rules = uiState.value.routingRules,
-        includeTunInbound = includeTunInbound,
-    )
+    ): String {
+        val geo = com.example.core.xray.XrayAssetHelper.currentStatus(getApplication())
+        return XrayConfigBuilder.buildConfigJson(
+            profile = profile,
+            settings = uiState.value.settings,
+            rules = uiState.value.routingRules,
+            includeTunInbound = includeTunInbound,
+            hasGeoIp = geo.hasGeoIp,
+            hasGeoSite = geo.hasGeoSite,
+        )
+    }
 
     fun validateProfile(profile: ProxyProfile): List<ConfigValidationIssue> =
         XrayConfigBuilder.validateProfile(profile)
