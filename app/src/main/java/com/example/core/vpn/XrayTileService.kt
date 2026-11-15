@@ -53,6 +53,7 @@ class XrayTileService : TileService() {
             // Update state immediately so the QS tile transitions to INACTIVE right away without race
             XrayEngineState.updateStatus(status = TunnelStatus.IDLE)
             refreshTile(XrayEngineState.state.value)
+            XrayVpnService.requestImmediateStop()
             val sent = runCatching { startService(XrayVpnService.buildStopIntent(this)) }.isSuccess
             if (!sent) {
                 runCatching { stopService(Intent(this, XrayVpnService::class.java)) }

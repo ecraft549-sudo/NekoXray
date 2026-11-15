@@ -13,40 +13,62 @@ import android.graphics.Paint
 import android.graphics.PorterDuff
 import android.graphics.PorterDuffXfermode
 import android.graphics.Rect
+import android.net.ConnectivityManager
+import android.net.LinkProperties
+import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import android.net.TrafficStats
 import android.net.VpnService
 import android.os.Build
 import android.os.ParcelFileDescriptor
 import android.os.Process
+import android.provider.Settings
 import androidx.core.app.NotificationCompat
 import com.example.MainActivity
+import com.example.NekoXrayApp
 import com.example.R
 import com.example.core.model.IPv6Mode
 import com.example.core.model.PerAppProxyMode
 import com.example.core.model.ProxyProfile
 import com.example.core.model.ProxyProtocol
 import com.example.core.model.RoutingRule
+import com.example.core.model.ServiceMode
 import com.example.core.model.XRAY_CORE_VERSION
 import com.example.core.model.XraySettings
 import com.example.core.widget.NekoWidgetManager
 import com.example.core.xray.XrayAssetHelper
 import com.example.core.xray.XrayConfigBuilder
+import com.example.data.local.NekoDatabase
+import com.example.data.preferences.SettingsDataStore
+import com.example.data.repository.NekoRepository
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
 import libv2ray.CoreCallbackHandler
 import libv2ray.CoreController
 import libv2ray.Libv2ray
 import org.json.JSONObject
+import java.net.DatagramSocket
+import java.net.Socket
 import java.util.Locale
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicReference
 
 class XrayVpnService : VpnService() {
 
@@ -54,6 +76,7 @@ class XrayVpnService : VpnService() {
         const val ACTION_START = "com.example.action.START_VPN"
         const val ACTION_STOP = "com.example.action.STOP_VPN"
         const val ACTION_RECONNECT = "com.example.action.RECONNECT_VPN"
+        const val EXTRA_SELF_INITIATED = "self_initiated"
         const val EXTRA_PROFILE_ID = "profile_id"
         const val EXTRA_PROFILE_NAME = "profile_name"
         const val EXTRA_PROTOCOL_LABEL = "protocol_label"
@@ -92,6 +115,7 @@ class XrayVpnService : VpnService() {
             rules: List<RoutingRule> = emptyList(),
         ): Intent = Intent(context, XrayVpnService::class.java).apply {
             action = ACTION_START
+            putExtra(EXTRA_SELF_INITIATED, true)
             putExtra(EXTRA_PROFILE_ID, profile.id)
             putExtra(EXTRA_PROFILE_NAME, profile.displayTitle())
             putExtra(EXTRA_PROTOCOL_LABEL, protocolLabel)
@@ -119,6 +143,86 @@ class XrayVpnService : VpnService() {
             Intent(context, XrayVpnService::class.java).apply {
                 action = ACTION_RECONNECT
             }
+
+        @Volatile
+        private var activeServiceInstance: XrayVpnService? = null
+
+        fun requestImmediateStop() {
+            activeServiceInstance?.stopTunnel()
+        }
+
+        fun isSystemAlwaysOnInvocation(intent: Intent?): Boolean {
+            if (intent == null) return true
+            val act = intent.action
+            if (act == SERVICE_INTERFACE) return true
+            if (act == ACTION_STOP || act == ACTION_RECONNECT) return false
+            return !intent.getBooleanExtra(EXTRA_SELF_INITIATED, false)
+        }
+
+        fun formatNetworkCapabilitiesLabel(caps: NetworkCapabilities?): String {
+            if (caps == null) return "Offline"
+            return when {
+                caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> "Ethernet"
+                caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> "Wi-Fi"
+                caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> "Cellular (LTE/5G)"
+                caps.hasTransport(NetworkCapabilities.TRANSPORT_BLUETOOTH) -> "Bluetooth"
+                else -> "Network"
+            }
+        }
+
+        fun buildLinkSignature(lp: LinkProperties?): Pair<String, Boolean> {
+            if (lp == null) return "" to false
+            val usableAddrs = lp.linkAddresses
+                .asSequence()
+                .mapNotNull { it.address }
+                .filter { !it.isLoopbackAddress && !it.isLinkLocalAddress && !it.isAnyLocalAddress }
+                .mapNotNull { it.hostAddress }
+                .sorted()
+                .toList()
+            val dnsHosts = lp.dnsServers
+                .asSequence()
+                .mapNotNull { it.hostAddress }
+                .sorted()
+                .toList()
+            val iface = lp.interfaceName.orEmpty()
+            val sig = "$iface|${usableAddrs.joinToString(",")}|${dnsHosts.joinToString(",")}"
+            return sig to usableAddrs.isNotEmpty()
+        }
+
+        fun rankPhysicalNetworks(
+            networks: Map<Network, NetworkCapabilities>,
+            activeDefaultNetwork: Network? = null,
+            linkProperties: Map<Network, LinkProperties> = emptyMap(),
+        ): List<Network> {
+            return networks.entries
+                .filter { (_, caps) ->
+                    caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+                        caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN) &&
+                        !caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)
+                }
+                .sortedWith(
+                    compareByDescending<Map.Entry<Network, NetworkCapabilities>> { (_, caps) ->
+                        Build.VERSION.SDK_INT >= Build.VERSION_CODES.M &&
+                            caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+                    }.thenByDescending { (net, _) ->
+                        val lp = linkProperties[net]
+                        if (lp == null) 1 else if (buildLinkSignature(lp).second) 2 else 0
+                    }.thenByDescending { (net, _) ->
+                        net == activeDefaultNetwork
+                    }.thenByDescending { (_, caps) ->
+                        when {
+                            caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> 4
+                            caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> 3
+                            caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> 2
+                            caps.hasTransport(NetworkCapabilities.TRANSPORT_BLUETOOTH) -> 1
+                            else -> 0
+                        }
+                    }.thenByDescending { (_, caps) ->
+                        caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED)
+                    }
+                )
+                .map { it.key }
+        }
 
         fun formatBytes(bytes: Long): String {
             val safe = bytes.coerceAtLeast(0L)
@@ -154,54 +258,682 @@ class XrayVpnService : VpnService() {
         }
     }
 
+    private data class ActiveTunnelSpec(
+        val profile: ProxyProfile,
+        val protocolLabel: String,
+        val effectiveConfigJson: String,
+        val settings: XraySettings,
+        val rules: List<RoutingRule>,
+        val mtu: Int,
+        val bypassLan: Boolean,
+        val proxyOnly: Boolean,
+        val ipv6Mode: IPv6Mode,
+        val socksPort: Int,
+        val httpPort: Int,
+        val perAppMode: PerAppProxyMode,
+        val perAppPackages: Set<String>,
+    )
+
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private val engineMutex = Mutex()
-    private val activeSessionToken = java.util.concurrent.atomic.AtomicLong(0L)
+    private val jniControlScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val engineMutexRef = AtomicReference(Mutex())
+    private val activeSessionToken = AtomicLong(0L)
+    private val handoffGeneration = AtomicLong(0L)
+    private var bootstrapJob: Job? = null
     private var activeStartJob: Job? = null
     private var trafficMonitorJob: Job? = null
+    private var networkHandoffJob: Job? = null
     private var lastStartIntent: Intent? = null
+    private var activeTunnelSpec: ActiveTunnelSpec? = null
     private var notificationLargeIcon: Bitmap? = null
+    private val activeTunDescriptors: MutableSet<ParcelFileDescriptor> = ConcurrentHashMap.newKeySet()
+    private val inHandoffCriticalSection = AtomicBoolean(false)
+    @Volatile
     private var tunInterface: ParcelFileDescriptor? = null
+    @Volatile
     private var coreControllerInstance: CoreController? = null
+    @Volatile
     private var localProxyServer: LocalProxyServer? = null
+    @Volatile
     private var kotlinTunForwarder: KotlinTunForwarder? = null
+    @Volatile
     private var sshTunnelBridge: SshTunnelBridge? = null
+
+    private data class PhysicalNetworkSnapshot(
+        val networkHandle: Long,
+        val label: String,
+        val linkSignature: String,
+        val hasUsableIp: Boolean,
+        val isValidated: Boolean,
+    )
+
+    private var connectivityManager: ConnectivityManager? = null
+    private val availableNetworks = ConcurrentHashMap<Network, NetworkCapabilities>()
+    private val networkLinkProperties = ConcurrentHashMap<Network, LinkProperties>()
+    @Volatile
+    private var currentPrimaryNetwork: Network? = null
+    @Volatile
+    private var lastHandedOffSnapshot: PhysicalNetworkSnapshot? = null
+    @Volatile
+    private var pendingHandoffSnapshot: PhysicalNetworkSnapshot? = null
+    @Volatile
+    private var lastHandoffDownBytes: Long = 0L
+    @Volatile
+    private var systemStartedAlwaysOn: Boolean = false
+    @Volatile
+    private var networkCallbackRegistered: Boolean = false
+
+    private val underlyingNetworkCallback = object : ConnectivityManager.NetworkCallback() {
+        override fun onAvailable(network: Network) {
+            val caps = runCatching { connectivityManager?.getNetworkCapabilities(network) }.getOrNull()
+            if (caps != null &&
+                caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+                caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN) &&
+                !caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)
+            ) {
+                availableNetworks[network] = caps
+                runCatching { connectivityManager?.getLinkProperties(network) }.getOrNull()?.let { lp ->
+                    networkLinkProperties[network] = lp
+                }
+            }
+            onPhysicalNetworksUpdated(reason = "onAvailable")
+        }
+
+        override fun onCapabilitiesChanged(network: Network, networkCapabilities: NetworkCapabilities) {
+            if (networkCapabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+                networkCapabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN) &&
+                !networkCapabilities.hasTransport(NetworkCapabilities.TRANSPORT_VPN)
+            ) {
+                availableNetworks[network] = networkCapabilities
+                if (!networkLinkProperties.containsKey(network)) {
+                    runCatching { connectivityManager?.getLinkProperties(network) }.getOrNull()?.let { lp ->
+                        networkLinkProperties[network] = lp
+                    }
+                }
+            } else {
+                availableNetworks.remove(network)
+                networkLinkProperties.remove(network)
+            }
+            onPhysicalNetworksUpdated(reason = "onCapabilitiesChanged")
+        }
+
+        override fun onLinkPropertiesChanged(network: Network, linkProperties: LinkProperties) {
+            networkLinkProperties[network] = linkProperties
+            if (!availableNetworks.containsKey(network)) {
+                val caps = runCatching { connectivityManager?.getNetworkCapabilities(network) }.getOrNull()
+                if (caps != null &&
+                    caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+                    caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN) &&
+                    !caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)
+                ) {
+                    availableNetworks[network] = caps
+                }
+            }
+            onPhysicalNetworksUpdated(reason = "onLinkPropertiesChanged")
+        }
+
+        override fun onLost(network: Network) {
+            availableNetworks.remove(network)
+            networkLinkProperties.remove(network)
+            onPhysicalNetworksUpdated(reason = "onLost")
+        }
+    }
+
+    internal val networkCallbackForTest: ConnectivityManager.NetworkCallback
+        get() = underlyingNetworkCallback
+
+    fun bindSocketToUnderlyingNetwork(socket: Socket): Boolean {
+        val protectedOk = protect(socket)
+        currentPrimaryNetwork?.let { net ->
+            runCatching { net.bindSocket(socket) }
+        }
+        return protectedOk
+    }
+
+    fun bindDatagramSocketToUnderlyingNetwork(socket: DatagramSocket): Boolean {
+        val protectedOk = protect(socket)
+        currentPrimaryNetwork?.let { net ->
+            runCatching { net.bindSocket(socket) }
+        }
+        return protectedOk
+    }
+
+    private fun bindProcessToUnderlyingNetwork(network: Network?) {
+        val cm = connectivityManager ?: return
+        runCatching {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                cm.bindProcessToNetwork(network)
+            } else {
+                @Suppress("DEPRECATION")
+                ConnectivityManager.setProcessDefaultNetwork(network)
+            }
+        }
+    }
+
+    fun isAlwaysOnActive(): Boolean {
+        val osAlwaysOn = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            runCatching { isAlwaysOn }.getOrDefault(false)
+        } else {
+            false
+        }
+        return systemStartedAlwaysOn || osAlwaysOn
+    }
+
+    fun isLockdownActive(): Boolean {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            runCatching { isLockdownEnabled }.getOrDefault(false)
+        } else {
+            false
+        }
+    }
 
     override fun onCreate() {
         super.onCreate()
+        activeServiceInstance = this
         ensureNotificationChannel()
         notificationLargeIcon = buildCircularLargeIcon()
+        registerUnderlyingNetworkMonitor()
+    }
+
+    private fun registerUnderlyingNetworkMonitor() {
+        val cm = runCatching { getSystemService(ConnectivityManager::class.java) }.getOrNull()
+        connectivityManager = cm
+        if (cm == null) return
+
+        // Seed all physical networks (Wi-Fi, Cellular, Ethernet) before callbacks arrive
+        runCatching {
+            @Suppress("DEPRECATION")
+            val candidates = buildList {
+                cm.allNetworks.forEach { add(it) }
+                cm.activeNetwork?.let { if (it !in this) add(it) }
+            }
+            for (net in candidates) {
+                val caps = cm.getNetworkCapabilities(net) ?: continue
+                if (caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+                    caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN) &&
+                    !caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)
+                ) {
+                    availableNetworks[net] = caps
+                    cm.getLinkProperties(net)?.let { networkLinkProperties[net] = it }
+                }
+            }
+            val ordered = getOrderedUnderlyingNetworks()
+            val primary = ordered.firstOrNull()
+            currentPrimaryNetwork = primary
+            if (primary != null) {
+                val caps = availableNetworks[primary]
+                XrayEngineState.updateNetworkState(
+                    underlyingNetworkLabel = formatNetworkCapabilitiesLabel(caps),
+                    isAlwaysOn = isAlwaysOnActive(),
+                    isLockdown = isLockdownActive(),
+                )
+            }
+        }
+
+        if (!networkCallbackRegistered) {
+            runCatching {
+                val req = NetworkRequest.Builder()
+                    .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                    .addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
+                    .build()
+                cm.registerNetworkCallback(req, underlyingNetworkCallback)
+                networkCallbackRegistered = true
+            }.onFailure { err ->
+                XrayEngineState.appendLog(
+                    "WARN",
+                    "ConnectivityManager callback registration failed: ${err.message ?: err.javaClass.simpleName}",
+                )
+            }
+        }
+    }
+
+    private fun unregisterUnderlyingNetworkMonitor() {
+        if (networkCallbackRegistered) {
+            runCatching { connectivityManager?.unregisterNetworkCallback(underlyingNetworkCallback) }
+            networkCallbackRegistered = false
+        }
+        bindProcessToUnderlyingNetwork(null)
+        availableNetworks.clear()
+        networkLinkProperties.clear()
+        currentPrimaryNetwork = null
+        lastHandedOffSnapshot = null
+        pendingHandoffSnapshot = null
+    }
+
+    private fun getOrderedUnderlyingNetworks(): List<Network> {
+        val activeDef = runCatching { connectivityManager?.activeNetwork }.getOrNull()
+        return rankPhysicalNetworks(availableNetworks, activeDef, networkLinkProperties)
+    }
+
+    private fun networkHandleOf(net: Network): Long {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            runCatching { net.networkHandle }.getOrElse { net.hashCode().toLong() }
+        } else {
+            net.hashCode().toLong()
+        }
+    }
+
+    private fun buildSnapshotFor(net: Network?): PhysicalNetworkSnapshot? {
+        net ?: return null
+        val caps = availableNetworks[net]
+        val lp = networkLinkProperties[net]
+        val (linkSig, hasUsableIp) = buildLinkSignature(lp)
+        val isValidated = Build.VERSION.SDK_INT >= Build.VERSION_CODES.M &&
+            (caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true)
+        return PhysicalNetworkSnapshot(
+            networkHandle = networkHandleOf(net),
+            label = formatNetworkCapabilitiesLabel(caps),
+            linkSignature = linkSig,
+            hasUsableIp = hasUsableIp,
+            isValidated = isValidated,
+        )
+    }
+
+    internal fun onPhysicalNetworksUpdated(reason: String, debounceMs: Long? = null) {
+        val ordered = getOrderedUnderlyingNetworks()
+        val newPrimary = ordered.firstOrNull()
+        val status = XrayEngineState.state.value.status
+        val isTunnelActive = status == TunnelStatus.CONNECTED || status == TunnelStatus.CONNECTING
+
+        if (isTunnelActive) {
+            runCatching {
+                setUnderlyingNetworks(if (ordered.isNotEmpty()) ordered.toTypedArray() else emptyArray())
+            }
+            bindProcessToUnderlyingNetwork(newPrimary)
+        }
+
+        val newSnapshot = buildSnapshotFor(newPrimary)
+        val newLabel = newSnapshot?.label ?: "Offline"
+        val prevPrimary = currentPrimaryNetwork
+        val prevLabel = XrayEngineState.state.value.underlyingNetworkLabel
+        currentPrimaryNetwork = newPrimary
+
+        XrayEngineState.updateNetworkState(
+            underlyingNetworkLabel = newLabel,
+            isAlwaysOn = isAlwaysOnActive(),
+            isLockdown = isLockdownActive(),
+        )
+
+        if (newPrimary == null || newSnapshot == null) {
+            if (!inHandoffCriticalSection.get()) {
+                networkHandoffJob?.cancel()
+            }
+            pendingHandoffSnapshot = null
+            lastHandedOffSnapshot = null
+            if (prevPrimary != null && isTunnelActive) {
+                XrayEngineState.appendLog(
+                    "WARN",
+                    "Underlying network lost ($prevLabel -> Offline); waiting for Wi-Fi/LTE reconnect...",
+                )
+            }
+            return
+        }
+
+        if (!isTunnelActive) {
+            return
+        }
+
+        val baseline = if (networkHandoffJob?.isActive == true) {
+            pendingHandoffSnapshot ?: lastHandedOffSnapshot
+        } else {
+            lastHandedOffSnapshot
+        }
+        val shouldHandoff = when {
+            baseline == null -> true
+            baseline.networkHandle != newSnapshot.networkHandle -> true
+            baseline.linkSignature != newSnapshot.linkSignature && newSnapshot.hasUsableIp -> true
+            !baseline.isValidated && newSnapshot.isValidated && (
+                coreControllerInstance?.isRunning != true ||
+                    XrayEngineState.state.value.totalDownBytes <= lastHandoffDownBytes
+                ) -> true
+            else -> false
+        }
+
+        if (shouldHandoff) {
+            val effectiveDelay = debounceMs ?: when {
+                newSnapshot.isValidated && newSnapshot.hasUsableIp -> 500L
+                newSnapshot.hasUsableIp -> 650L
+                else -> 1100L
+            }
+            val fromDesc = prevLabel.ifBlank { baseline?.label ?: "Offline" }
+            XrayEngineState.appendLog(
+                "INFO",
+                "Network transition ($fromDesc -> $newLabel via $reason, ip=${newSnapshot.hasUsableIp}, validated=${newSnapshot.isValidated}); scheduling Xray handoff (${effectiveDelay}ms)...",
+            )
+            scheduleSeamlessNetworkHandoff(newSnapshot, effectiveDelay)
+        } else if (lastHandedOffSnapshot != null && !lastHandedOffSnapshot!!.isValidated && newSnapshot.isValidated) {
+            lastHandedOffSnapshot = newSnapshot
+        }
+    }
+
+    private fun scheduleSeamlessNetworkHandoff(
+        targetSnapshot: PhysicalNetworkSnapshot,
+        debounceMs: Long = 500L,
+    ) {
+        val gen = handoffGeneration.incrementAndGet()
+        pendingHandoffSnapshot = targetSnapshot
+        // Never cancel a handoff coroutine while it is inside the mutex critical section tearing down/rebuilding TUN
+        if (inHandoffCriticalSection.get() && networkHandoffJob?.isActive == true) {
+            return
+        }
+        networkHandoffJob?.cancel()
+        networkHandoffJob = serviceScope.launch {
+            if (debounceMs > 0L) delay(debounceMs)
+            val sessionAtLaunch = activeSessionToken.get()
+            if (!isActive || gen != handoffGeneration.get()) return@launch
+            if (XrayEngineState.state.value.status != TunnelStatus.CONNECTED) return@launch
+
+            val lock = engineMutexRef.get()
+            val acquired = withTimeoutOrNull(2500L) {
+                lock.lock()
+                true
+            } ?: false
+            if (!acquired) {
+                XrayEngineState.appendLog("WARN", "Engine lock busy during network handoff; forcing recovery reset.")
+                forceReleaseNativeResources()
+                engineMutexRef.compareAndSet(lock, Mutex())
+                return@launch
+            }
+            inHandoffCriticalSection.set(true)
+            try {
+                withContext(NonCancellable) {
+                    if (sessionAtLaunch != activeSessionToken.get()) return@withContext
+                    if (XrayEngineState.state.value.status != TunnelStatus.CONNECTED) return@withContext
+                    val spec = activeTunnelSpec ?: return@withContext
+
+                    val initialOrdered = getOrderedUnderlyingNetworks()
+                    val initialTarget = initialOrdered.firstOrNull() ?: return@withContext
+                    val initialSnapshot = buildSnapshotFor(initialTarget) ?: targetSnapshot
+
+                    runCatching {
+                        setUnderlyingNetworks(initialOrdered.toTypedArray())
+                    }
+                    bindProcessToUnderlyingNetwork(initialTarget)
+
+                    XrayEngineState.updateNetworkState(
+                        underlyingNetworkLabel = initialSnapshot.label,
+                        isAlwaysOn = isAlwaysOnActive(),
+                        isLockdown = isLockdownActive(),
+                        incrementHandoff = true,
+                    )
+
+                    runCatching {
+                        sshTunnelBridge?.reconnectSession("network handoff to ${initialSnapshot.label}")
+                        val hasNativeCore = XrayEngineState.state.value.isNativeCoreLinked
+
+                        if (hasNativeCore) {
+                            // 1. Stop old CoreController & close old tunInterface cleanly (non-cancellable)
+                            stopNativeCoreAndTunSafely()
+                            delay(200L)
+
+                            if (sessionAtLaunch != activeSessionToken.get() ||
+                                XrayEngineState.state.value.status != TunnelStatus.CONNECTED
+                            ) {
+                                stopPreviousEnginesSafely()
+                                return@withContext
+                            }
+
+                            // Re-query freshest physical network in case another callback arrived during the 200ms settle
+                            val latestOrdered = getOrderedUnderlyingNetworks()
+                            val latestTarget = latestOrdered.firstOrNull() ?: initialTarget
+                            runCatching {
+                                setUnderlyingNetworks(
+                                    if (latestOrdered.isNotEmpty()) latestOrdered.toTypedArray() else null
+                                )
+                            }
+                            bindProcessToUnderlyingNetwork(latestTarget)
+
+                            if (!spec.proxyOnly) {
+                                val freshPfd = establishVpnInterface(spec)
+                                    ?: error("VPN interface could not be re-established during network handoff")
+                                tunInterface = freshPfd
+                                if (sessionAtLaunch != activeSessionToken.get()) {
+                                    stopPreviousEnginesSafely()
+                                    return@withContext
+                                }
+                                startNativeCoreWithRetry(spec.effectiveConfigJson, freshPfd.fd, sessionAtLaunch)
+                            } else {
+                                startNativeCoreWithRetry(spec.effectiveConfigJson, 0, sessionAtLaunch)
+                            }
+                        } else if (!spec.proxyOnly) {
+                            // Kotlin fallback forwarder restart on network change
+                            runCatching { kotlinTunForwarder?.stop() }
+                            runCatching { localProxyServer?.stop() }
+                            val pfd = tunInterface ?: establishVpnInterface(spec)?.also { tunInterface = it }
+                            if (pfd != null) {
+                                val dialer = KotlinOutboundDialer(profile = spec.profile, vpnService = this@XrayVpnService)
+                                kotlinTunForwarder = KotlinTunForwarder(
+                                    tunPfd = pfd,
+                                    dialer = dialer,
+                                    scope = serviceScope,
+                                ).also { it.start() }
+                                localProxyServer = LocalProxyServer(
+                                    socksPort = spec.socksPort,
+                                    httpPort = spec.httpPort,
+                                    dialer = dialer,
+                                ).also { it.start(serviceScope) }
+                            }
+                        }
+
+                        if (sessionAtLaunch == activeSessionToken.get()) {
+                            val finalNet = getOrderedUnderlyingNetworks().firstOrNull() ?: initialTarget
+                            val finalSnapshot = buildSnapshotFor(finalNet) ?: initialSnapshot
+                            lastHandedOffSnapshot = finalSnapshot
+                            pendingHandoffSnapshot = null
+                            lastHandoffDownBytes = XrayEngineState.state.value.totalDownBytes
+                            XrayEngineState.appendLog(
+                                "INFO",
+                                "Seamless handoff to ${finalSnapshot.label} complete (process & VPN bound to physical net).",
+                            )
+                            updateLiveNotification(
+                                profile = spec.profile,
+                                profileName = spec.profile.displayTitle(),
+                                protocolLabel = spec.protocolLabel,
+                                proxyOnly = spec.proxyOnly,
+                                connectedSinceMs = System.currentTimeMillis(),
+                                upSpeedBps = XrayEngineState.state.value.upSpeedBps,
+                                downSpeedBps = XrayEngineState.state.value.downSpeedBps,
+                                totalUpBytes = XrayEngineState.state.value.totalUpBytes,
+                                totalDownBytes = XrayEngineState.state.value.totalDownBytes,
+                            )
+                        } else {
+                            stopPreviousEnginesSafely()
+                        }
+                    }.onFailure { err ->
+                        pendingHandoffSnapshot = null
+                        if (err is CancellationException) {
+                            if (sessionAtLaunch != activeSessionToken.get()) {
+                                stopPreviousEnginesSafely()
+                            }
+                            return@onFailure
+                        }
+                        lastHandedOffSnapshot = null
+                        if (sessionAtLaunch == activeSessionToken.get()) {
+                            XrayEngineState.appendLog(
+                                "ERROR",
+                                "Network handoff failed: ${err.message ?: err.javaClass.simpleName}",
+                            )
+                            XrayEngineState.updateStatus(
+                                status = TunnelStatus.ERROR,
+                                error = "Network handoff failed: ${err.message ?: err.javaClass.simpleName}",
+                            )
+                            stopTunnelInternal()
+                            NekoWidgetManager.refreshAll(this@XrayVpnService)
+                        } else {
+                            stopPreviousEnginesSafely()
+                        }
+                    }
+                }
+            } finally {
+                inHandoffCriticalSection.set(false)
+                runCatching { if (lock.isLocked) lock.unlock() }
+            }
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        when (intent?.action) {
-            ACTION_STOP, null -> {
-                stopTunnel()
-                return START_NOT_STICKY
-            }
+        if (intent?.action == ACTION_STOP) {
+            systemStartedAlwaysOn = false
+            stopTunnel()
+            return START_NOT_STICKY
+        }
 
-            ACTION_RECONNECT -> {
-                val prev = lastStartIntent
-                if (prev != null) {
-                    handleStartIntent(prev)
+        if (intent?.action == ACTION_RECONNECT) {
+            val prev = lastStartIntent
+            if (prev != null) {
+                handleStartIntent(prev)
+            } else {
+                handleAlwaysOnOrBootstrapStart(isSystemAlwaysOn = isAlwaysOnActive())
+            }
+            return START_STICKY
+        }
+
+        if (intent?.action == ACTION_START && intent.hasExtra(EXTRA_PROFILE_JSON)) {
+            if (isSystemAlwaysOnInvocation(intent)) {
+                systemStartedAlwaysOn = true
+            }
+            lastStartIntent = Intent(intent)
+            handleStartIntent(intent)
+            return START_STICKY
+        }
+
+        // System Always-On VPN launch (action == "android.net.VpnService" or null intent on sticky restart)
+        systemStartedAlwaysOn = true
+        handleAlwaysOnOrBootstrapStart(isSystemAlwaysOn = true)
+        return START_STICKY
+    }
+
+    private fun handleAlwaysOnOrBootstrapStart(isSystemAlwaysOn: Boolean) {
+        val bootstrapToken = activeSessionToken.incrementAndGet()
+        bootstrapJob?.cancel()
+        activeStartJob?.cancel()
+        networkHandoffJob?.cancel()
+        val placeholderProfile = ProxyProfile(name = "Always-On VPN")
+        startForeground(
+            NOTIFICATION_ID,
+            buildNotification(
+                profile = placeholderProfile,
+                profileName = "Always-On VPN",
+                protocolLabel = "Xray-core",
+                proxyOnly = false,
+                connected = false,
+                connectedSinceMs = 0L,
+            ),
+        )
+        XrayEngineState.updateNetworkState(
+            isAlwaysOn = isSystemAlwaysOn || isAlwaysOnActive(),
+            isLockdown = isLockdownActive(),
+        )
+
+        bootstrapJob = serviceScope.launch {
+            runCatching {
+                val geo = XrayAssetHelper.ensureInitialized(this@XrayVpnService)
+                val app = applicationContext as? NekoXrayApp
+                val repo = app?.repository ?: NekoRepository(
+                    db = NekoDatabase.getInstance(applicationContext),
+                    settingsStore = SettingsDataStore(applicationContext),
+                    appContext = applicationContext,
+                )
+                repo.ensureDefaults()
+                val profiles = repo.profilesFlow.first()
+                val selectedId = repo.selectedProfileIdFlow.first()
+                val savedSettings = repo.settingsFlow.first()
+                val rules = repo.routingRulesFlow.first()
+                val profile = profiles.find { it.id == selectedId } ?: profiles.firstOrNull()
+
+                if (bootstrapToken != activeSessionToken.get()) return@launch
+
+                if (profile == null) {
+                    XrayEngineState.appendLog(
+                        "WARN",
+                        "Always-On VPN triggered by Android system, but no proxy profile is configured yet.",
+                    )
+                    XrayEngineState.updateStatus(
+                        status = TunnelStatus.ERROR,
+                        error = "Always-On VPN: add a profile in NekoXray first.",
+                    )
+                    stopTunnelInternal()
+                    NekoWidgetManager.refreshAll(this@XrayVpnService)
+                    return@launch
+                }
+
+                // Always-On VPN requires a TUN interface to satisfy Android VpnService & Lockdown mode
+                val effectiveSettings = if (isSystemAlwaysOn || isAlwaysOnActive() || isLockdownActive()) {
+                    savedSettings.copy(serviceMode = ServiceMode.VPN)
                 } else {
-                    stopTunnel()
+                    savedSettings
+                }
+                val proxyOnly = effectiveSettings.serviceMode == ServiceMode.PROXY_ONLY
+                val protocolLabel = NekoWidgetManager.formatProtocolLabel(profile)
+                val configJson = XrayConfigBuilder.buildConfigJson(
+                    profile = profile,
+                    settings = effectiveSettings,
+                    rules = rules,
+                    includeTunInbound = !proxyOnly,
+                    hasGeoIp = geo.hasGeoIp,
+                    hasGeoSite = geo.hasGeoSite,
+                )
+
+                if (bootstrapToken != activeSessionToken.get()) return@launch
+
+                val constructedIntent = buildStartIntent(
+                    context = this@XrayVpnService,
+                    profile = profile,
+                    protocolLabel = protocolLabel,
+                    configJson = configJson,
+                    mtu = effectiveSettings.mtu,
+                    bypassLan = effectiveSettings.bypassLan,
+                    proxyOnly = proxyOnly,
+                    ipv6Mode = effectiveSettings.ipv6Mode,
+                    socksPort = effectiveSettings.socksPort,
+                    httpPort = effectiveSettings.httpPort,
+                    perAppMode = effectiveSettings.perAppMode,
+                    perAppPackages = effectiveSettings.perAppPackages,
+                    settings = effectiveSettings,
+                    rules = rules,
+                )
+                lastStartIntent = constructedIntent
+                XrayEngineState.appendLog(
+                    "INFO",
+                    "Always-On VPN bootstrap loaded profile '${profile.displayTitle()}' (lockdown=${isLockdownActive()}).",
+                )
+                startTunnel(
+                    profile = profile,
+                    protocolLabel = protocolLabel,
+                    configJson = configJson,
+                    settings = effectiveSettings,
+                    rules = rules,
+                    mtu = effectiveSettings.mtu,
+                    bypassLan = effectiveSettings.bypassLan,
+                    proxyOnly = proxyOnly,
+                    ipv6Mode = effectiveSettings.ipv6Mode,
+                    socksPort = effectiveSettings.socksPort,
+                    httpPort = effectiveSettings.httpPort,
+                    perAppMode = effectiveSettings.perAppMode,
+                    perAppPackages = effectiveSettings.perAppPackages,
+                )
+            }.onFailure { err ->
+                if (err !is CancellationException && bootstrapToken == activeSessionToken.get()) {
+                    XrayEngineState.appendLog(
+                        "ERROR",
+                        "Always-On VPN bootstrap failed: ${err.message ?: err.javaClass.simpleName}",
+                    )
+                    XrayEngineState.updateStatus(
+                        status = TunnelStatus.ERROR,
+                        error = err.message ?: "Always-On VPN bootstrap failed",
+                    )
+                    stopTunnelInternal()
                 }
             }
-
-            ACTION_START -> {
-                lastStartIntent = Intent(intent)
-                handleStartIntent(intent)
-            }
         }
-        return START_NOT_STICKY
     }
 
     private fun handleStartIntent(intent: Intent) {
+        bootstrapJob?.cancel()
+        bootstrapJob = null
         val profileId = intent.getLongExtra(EXTRA_PROFILE_ID, 0L)
         val profileName = intent.getStringExtra(EXTRA_PROFILE_NAME).orEmpty().ifBlank { "Xray Profile" }
         val protocolLabel = intent.getStringExtra(EXTRA_PROTOCOL_LABEL).orEmpty()
-        val isReality = intent.getBooleanExtra(EXTRA_IS_REALITY, false)
         val configJson = intent.getStringExtra(EXTRA_CONFIG_JSON).orEmpty()
         val profileJson = intent.getStringExtra(EXTRA_PROFILE_JSON).orEmpty()
         val profile = runCatching {
@@ -221,7 +953,7 @@ class XrayVpnService : VpnService() {
         }.getOrDefault(emptyList())
         val mtu = intent.getIntExtra(EXTRA_MTU, 1500)
         val bypassLan = intent.getBooleanExtra(EXTRA_BYPASS_LAN, true)
-        val proxyOnly = intent.getBooleanExtra(EXTRA_PROXY_ONLY, false)
+        val proxyOnly = intent.getBooleanExtra(EXTRA_PROXY_ONLY, false) && !isAlwaysOnActive() && !isLockdownActive()
         val ipv6Mode = runCatching {
             IPv6Mode.valueOf(intent.getStringExtra(EXTRA_IPV6_MODE) ?: IPv6Mode.ENABLE.name)
         }.getOrDefault(IPv6Mode.ENABLE)
@@ -260,6 +992,88 @@ class XrayVpnService : VpnService() {
         )
     }
 
+    private fun establishVpnInterface(spec: ActiveTunnelSpec): ParcelFileDescriptor? {
+        val profileName = spec.profile.displayTitle()
+        val effectiveMtu = spec.mtu.coerceIn(1280, 9000)
+        val builder = Builder()
+            .setSession(profileName)
+            .setMtu(effectiveMtu)
+            .addAddress("172.19.0.1", 30)
+            .addDnsServer("1.1.1.1")
+            .addDnsServer("8.8.8.8")
+            .addRoute("0.0.0.0", 0)
+            .setConfigureIntent(mainPendingIntent())
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            runCatching { builder.setMetered(false) }
+        }
+
+        val orderedNetworks = getOrderedUnderlyingNetworks()
+        runCatching {
+            builder.setUnderlyingNetworks(
+                if (orderedNetworks.isNotEmpty()) orderedNetworks.toTypedArray() else null
+            )
+        }
+
+        val enableTunIpv6 = if (spec.profile.protocol == ProxyProtocol.SSH) {
+            spec.ipv6Mode == IPv6Mode.ONLY || spec.ipv6Mode == IPv6Mode.PREFER
+        } else {
+            spec.ipv6Mode != IPv6Mode.DISABLE
+        }
+        if (enableTunIpv6) {
+            builder.addAddress("fdfe:dcba:9876::1", 126)
+            builder.addRoute("::", 0)
+        }
+
+        if (isLockdownActive() && spec.perAppMode != PerAppProxyMode.ALL) {
+            XrayEngineState.appendLog(
+                "WARN",
+                "Android VPN Lockdown ('Block connections without VPN') is active: apps excluded from VPN will have no internet access by OS policy.",
+            )
+        }
+
+        when (spec.perAppMode) {
+            PerAppProxyMode.ALL -> {
+                runCatching { builder.addDisallowedApplication(packageName) }
+            }
+            PerAppProxyMode.BYPASS_SELECTED -> {
+                runCatching { builder.addDisallowedApplication(packageName) }
+                spec.perAppPackages.forEach { pkg ->
+                    if (pkg != packageName) {
+                        runCatching { builder.addDisallowedApplication(pkg) }
+                    }
+                }
+                XrayEngineState.appendLog("INFO", "Per-App VPN: bypassing ${spec.perAppPackages.size} app(s).")
+            }
+            PerAppProxyMode.PROXY_SELECTED -> {
+                val targets = spec.perAppPackages.filter { it != packageName }
+                if (targets.isEmpty()) {
+                    runCatching { builder.addDisallowedApplication(packageName) }
+                } else {
+                    targets.forEach { pkg ->
+                        runCatching { builder.addAllowedApplication(pkg) }
+                    }
+                    XrayEngineState.appendLog("INFO", "Per-App VPN: routing ${targets.size} selected app(s).")
+                }
+            }
+        }
+
+        if (spec.bypassLan) {
+            XrayEngineState.appendLog("INFO", "LAN bypass rule configured in Xray routing.")
+        }
+
+        val pfd = builder.establish()
+        if (pfd != null) {
+            activeTunDescriptors.add(pfd)
+            runCatching {
+                setUnderlyingNetworks(
+                    if (orderedNetworks.isNotEmpty()) orderedNetworks.toTypedArray() else null
+                )
+            }
+        }
+        return pfd
+    }
+
     private fun startTunnel(
         profile: ProxyProfile,
         protocolLabel: String,
@@ -277,6 +1091,11 @@ class XrayVpnService : VpnService() {
     ) {
         val profileName = profile.displayTitle()
         val sessionToken = activeSessionToken.incrementAndGet()
+        handoffGeneration.incrementAndGet()
+        XrayEngineState.updateNetworkState(
+            isAlwaysOn = isAlwaysOnActive(),
+            isLockdown = isLockdownActive(),
+        )
         XrayEngineState.updateStatus(
             status = TunnelStatus.CONNECTING,
             profileId = profile.id,
@@ -288,185 +1107,211 @@ class XrayVpnService : VpnService() {
         NekoWidgetManager.refreshAll(this)
         XrayEngineState.appendLog("INFO", "Starting Xray session for '$profileName' ($protocolLabel)...")
 
+        networkHandoffJob?.cancel()
+        networkHandoffJob = null
         activeStartJob?.cancel()
         activeStartJob = serviceScope.launch {
-            engineMutex.withLock {
-                if (sessionToken != activeSessionToken.get()) return@withLock
-                runCatching {
-                    stopPreviousEnginesOnly()
-                val hasNativeCore = XrayEngineState.state.value.isNativeCoreLinked
-
-                if (!proxyOnly) {
-                    val effectiveMtu = mtu.coerceIn(1280, 9000)
-                    val builder = Builder()
-                        .setSession(profileName)
-                        .setMtu(effectiveMtu)
-                        .addAddress("172.19.0.1", 30)
-                        .addDnsServer("1.1.1.1")
-                        .addDnsServer("8.8.8.8")
-                        .addRoute("0.0.0.0", 0)
-                        .setConfigureIntent(mainPendingIntent())
-
-                    val enableTunIpv6 = if (profile.protocol == ProxyProtocol.SSH) {
-                        ipv6Mode == IPv6Mode.ONLY || ipv6Mode == IPv6Mode.PREFER
-                    } else {
-                        ipv6Mode != IPv6Mode.DISABLE
-                    }
-                    if (enableTunIpv6) {
-                        builder.addAddress("fdfe:dcba:9876::1", 126)
-                        builder.addRoute("::", 0)
-                    }
-
-                    when (perAppMode) {
-                        PerAppProxyMode.ALL -> {
-                            runCatching { builder.addDisallowedApplication(packageName) }
-                        }
-                        PerAppProxyMode.BYPASS_SELECTED -> {
-                            runCatching { builder.addDisallowedApplication(packageName) }
-                            perAppPackages.forEach { pkg ->
-                                if (pkg != packageName) {
-                                    runCatching { builder.addDisallowedApplication(pkg) }
-                                }
-                            }
-                            XrayEngineState.appendLog("INFO", "Per-App VPN: bypassing ${perAppPackages.size} app(s).")
-                        }
-                        PerAppProxyMode.PROXY_SELECTED -> {
-                            val targets = perAppPackages.filter { it != packageName }
-                            if (targets.isEmpty()) {
-                                runCatching { builder.addDisallowedApplication(packageName) }
-                            } else {
-                                targets.forEach { pkg ->
-                                    runCatching { builder.addAllowedApplication(pkg) }
-                                }
-                                XrayEngineState.appendLog("INFO", "Per-App VPN: routing ${targets.size} selected app(s).")
-                            }
-                        }
-                    }
-
-                    if (bypassLan) {
-                        XrayEngineState.appendLog("INFO", "LAN bypass rule configured in Xray routing.")
-                    }
-
-                    tunInterface = builder.establish()
-                    val pfd = tunInterface
-                        ?: error("VPN interface could not be established (permission missing or revoked).")
-                    XrayEngineState.appendLog("INFO", "TUN interface established (172.19.0.1/30, fd=${pfd.fd}, MTU $effectiveMtu).")
-
-                    val effectiveConfigJson = if (profile.protocol == ProxyProtocol.SSH) {
-                        val geo = XrayAssetHelper.currentStatus(this@XrayVpnService)
-                        val bridge = SshTunnelBridge(profile = profile, vpnService = this@XrayVpnService)
-                        val bridgePort = bridge.start()
-                        sshTunnelBridge = bridge
-                        XrayConfigBuilder.buildConfigJson(
-                            profile = profile,
-                            settings = settings,
-                            rules = rules,
-                            includeTunInbound = true,
-                            sshLocalBridgePort = bridgePort,
-                            hasGeoIp = geo.hasGeoIp,
-                            hasGeoSite = geo.hasGeoSite,
-                        )
-                    } else {
-                        configJson
-                    }
-
-                    if (hasNativeCore) {
-                        startNativeCoreOrThrow(effectiveConfigJson, pfd.fd)
-                        XrayEngineState.appendLog("INFO", "Native Xray-core TUN loop active via libv2ray (${Libv2ray.checkVersionX()}).")
-                    } else {
-                        val dialer = KotlinOutboundDialer(profile = profile, vpnService = this@XrayVpnService)
-                        kotlinTunForwarder = KotlinTunForwarder(
-                            tunPfd = pfd,
-                            dialer = dialer,
-                            scope = serviceScope,
-                        ).also { it.start() }
-
-                        localProxyServer = LocalProxyServer(
-                            socksPort = socksPort,
-                            httpPort = httpPort,
-                            dialer = dialer,
-                        ).also { it.start(serviceScope) }
-                    }
-
-                    if (sessionToken != activeSessionToken.get()) {
-                        stopPreviousEnginesOnly()
-                        return@withLock
-                    }
-                    XrayEngineState.updateStatus(
-                        status = TunnelStatus.CONNECTED,
-                        profileId = profile.id,
-                        profileName = profileName,
-                        protocolLabel = protocolLabel,
-                        isReality = profile.isReality,
-                        configJson = effectiveConfigJson,
-                    )
-                    NekoWidgetManager.refreshAll(this@XrayVpnService)
-                } else {
-                    val effectiveConfigJson = if (profile.protocol == ProxyProtocol.SSH) {
-                        val geo = XrayAssetHelper.currentStatus(this@XrayVpnService)
-                        val bridge = SshTunnelBridge(profile = profile, vpnService = this@XrayVpnService)
-                        val bridgePort = bridge.start()
-                        sshTunnelBridge = bridge
-                        XrayConfigBuilder.buildConfigJson(
-                            profile = profile,
-                            settings = settings,
-                            rules = rules,
-                            includeTunInbound = false,
-                            sshLocalBridgePort = bridgePort,
-                            hasGeoIp = geo.hasGeoIp,
-                            hasGeoSite = geo.hasGeoSite,
-                        )
-                    } else {
-                        configJson
-                    }
-
-                    if (hasNativeCore) {
-                        // In AndroidLibXrayLite, tunFd == 0 means Proxy-Only (no TUN)
-                        startNativeCoreOrThrow(effectiveConfigJson, 0)
-                        XrayEngineState.appendLog("INFO", "Native Xray-core Proxy-Only active (SOCKS5:$socksPort HTTP:$httpPort).")
-                    } else {
-                        val dialer = KotlinOutboundDialer(profile = profile, vpnService = this@XrayVpnService)
-                        localProxyServer = LocalProxyServer(
-                            socksPort = socksPort,
-                            httpPort = httpPort,
-                            dialer = dialer,
-                        ).also { it.start(serviceScope) }
-                    }
-
-                    if (sessionToken != activeSessionToken.get()) {
-                        stopPreviousEnginesOnly()
-                        return@withLock
-                    }
-                    XrayEngineState.updateStatus(
-                        status = TunnelStatus.CONNECTED,
-                        profileId = profile.id,
-                        profileName = profileName,
-                        protocolLabel = protocolLabel,
-                        isReality = profile.isReality,
-                        configJson = effectiveConfigJson,
-                    )
-                    NekoWidgetManager.refreshAll(this@XrayVpnService)
-                }
-                startTrafficMonitor(
-                    sessionToken = sessionToken,
-                    profile = profile,
-                    profileName = profileName,
-                    protocolLabel = protocolLabel,
-                    proxyOnly = proxyOnly,
-                )
-            }.onFailure { err ->
-                if (sessionToken == activeSessionToken.get()) {
-                    XrayEngineState.appendLog("ERROR", "Tunnel failed: ${err.message ?: err.javaClass.simpleName}")
-                    XrayEngineState.updateStatus(
-                        status = TunnelStatus.ERROR,
-                        error = err.message ?: "VPN start failed",
-                    )
-                    stopTunnelInternal()
-                    NekoWidgetManager.refreshAll(this@XrayVpnService)
-                } else {
-                    stopPreviousEnginesOnly()
-                }
+            var lock = engineMutexRef.get()
+            val acquired = withTimeoutOrNull(2500L) {
+                lock.lock()
+                true
+            } ?: false
+            if (!acquired) {
+                XrayEngineState.appendLog("WARN", "Previous tunnel operation stalled; resetting engine lock.")
+                forceReleaseNativeResources()
+                val freshLock = Mutex(locked = true)
+                engineMutexRef.set(freshLock)
+                lock = freshLock
             }
+            try {
+                if (sessionToken != activeSessionToken.get()) return@launch
+                runCatching {
+                    stopPreviousEnginesSafely()
+                    delay(100L)
+                    if (sessionToken != activeSessionToken.get()) return@launch
+                    val hasNativeCore = XrayEngineState.state.value.isNativeCoreLinked
+
+                    if (!proxyOnly) {
+                        val effectiveMtu = mtu.coerceIn(1280, 9000)
+                        val effectiveConfigJson = if (profile.protocol == ProxyProtocol.SSH) {
+                            val geo = XrayAssetHelper.currentStatus(this@XrayVpnService)
+                            val bridge = SshTunnelBridge(profile = profile, vpnService = this@XrayVpnService)
+                            val bridgePort = bridge.start()
+                            sshTunnelBridge = bridge
+                            XrayConfigBuilder.buildConfigJson(
+                                profile = profile,
+                                settings = settings,
+                                rules = rules,
+                                includeTunInbound = true,
+                                sshLocalBridgePort = bridgePort,
+                                hasGeoIp = geo.hasGeoIp,
+                                hasGeoSite = geo.hasGeoSite,
+                            )
+                        } else {
+                            configJson
+                        }
+
+                        val spec = ActiveTunnelSpec(
+                            profile = profile,
+                            protocolLabel = protocolLabel,
+                            effectiveConfigJson = effectiveConfigJson,
+                            settings = settings,
+                            rules = rules,
+                            mtu = effectiveMtu,
+                            bypassLan = bypassLan,
+                            proxyOnly = false,
+                            ipv6Mode = ipv6Mode,
+                            socksPort = socksPort,
+                            httpPort = httpPort,
+                            perAppMode = perAppMode,
+                            perAppPackages = perAppPackages,
+                        )
+                        activeTunnelSpec = spec
+
+                        val pfd = establishVpnInterface(spec)
+                            ?: error("VPN interface could not be established (permission missing or revoked).")
+                        if (sessionToken != activeSessionToken.get()) {
+                            runCatching { pfd.close() }
+                            return@launch
+                        }
+                        tunInterface = pfd
+                        val netLabel = XrayEngineState.state.value.underlyingNetworkLabel.ifBlank { "default" }
+                        XrayEngineState.appendLog(
+                            "INFO",
+                            "TUN interface established (172.19.0.1/30, fd=${pfd.fd}, MTU $effectiveMtu, network=$netLabel, alwaysOn=${isAlwaysOnActive()}, lockdown=${isLockdownActive()}).",
+                        )
+
+                        val primaryAtStart = getOrderedUnderlyingNetworks().firstOrNull()
+                        bindProcessToUnderlyingNetwork(primaryAtStart)
+
+                        if (hasNativeCore) {
+                            startNativeCoreWithRetry(effectiveConfigJson, pfd.fd, sessionToken)
+                            XrayEngineState.appendLog("INFO", "Native Xray-core TUN loop active via libv2ray (${Libv2ray.checkVersionX()}).")
+                        } else {
+                            val dialer = KotlinOutboundDialer(profile = profile, vpnService = this@XrayVpnService)
+                            kotlinTunForwarder = KotlinTunForwarder(
+                                tunPfd = pfd,
+                                dialer = dialer,
+                                scope = serviceScope,
+                            ).also { it.start() }
+
+                            localProxyServer = LocalProxyServer(
+                                socksPort = socksPort,
+                                httpPort = httpPort,
+                                dialer = dialer,
+                            ).also { it.start(serviceScope) }
+                        }
+
+                        if (sessionToken != activeSessionToken.get()) {
+                            stopPreviousEnginesSafely()
+                            return@launch
+                        }
+                        lastHandedOffSnapshot = buildSnapshotFor(primaryAtStart ?: currentPrimaryNetwork)
+                        lastHandoffDownBytes = XrayEngineState.state.value.totalDownBytes
+                        XrayEngineState.updateStatus(
+                            status = TunnelStatus.CONNECTED,
+                            profileId = profile.id,
+                            profileName = profileName,
+                            protocolLabel = protocolLabel,
+                            isReality = profile.isReality,
+                            configJson = effectiveConfigJson,
+                        )
+                        NekoWidgetManager.refreshAll(this@XrayVpnService)
+                    } else {
+                        val effectiveConfigJson = if (profile.protocol == ProxyProtocol.SSH) {
+                            val geo = XrayAssetHelper.currentStatus(this@XrayVpnService)
+                            val bridge = SshTunnelBridge(profile = profile, vpnService = this@XrayVpnService)
+                            val bridgePort = bridge.start()
+                            sshTunnelBridge = bridge
+                            XrayConfigBuilder.buildConfigJson(
+                                profile = profile,
+                                settings = settings,
+                                rules = rules,
+                                includeTunInbound = false,
+                                sshLocalBridgePort = bridgePort,
+                                hasGeoIp = geo.hasGeoIp,
+                                hasGeoSite = geo.hasGeoSite,
+                            )
+                        } else {
+                            configJson
+                        }
+
+                        activeTunnelSpec = ActiveTunnelSpec(
+                            profile = profile,
+                            protocolLabel = protocolLabel,
+                            effectiveConfigJson = effectiveConfigJson,
+                            settings = settings,
+                            rules = rules,
+                            mtu = mtu,
+                            bypassLan = bypassLan,
+                            proxyOnly = true,
+                            ipv6Mode = ipv6Mode,
+                            socksPort = socksPort,
+                            httpPort = httpPort,
+                            perAppMode = perAppMode,
+                            perAppPackages = perAppPackages,
+                        )
+
+                        val primaryAtStart = getOrderedUnderlyingNetworks().firstOrNull()
+                        bindProcessToUnderlyingNetwork(primaryAtStart)
+
+                        if (hasNativeCore) {
+                            // In AndroidLibXrayLite, tunFd == 0 means Proxy-Only (no TUN)
+                            startNativeCoreWithRetry(effectiveConfigJson, 0, sessionToken)
+                            XrayEngineState.appendLog("INFO", "Native Xray-core Proxy-Only active (SOCKS5:$socksPort HTTP:$httpPort).")
+                        } else {
+                            val dialer = KotlinOutboundDialer(profile = profile, vpnService = this@XrayVpnService)
+                            localProxyServer = LocalProxyServer(
+                                socksPort = socksPort,
+                                httpPort = httpPort,
+                                dialer = dialer,
+                            ).also { it.start(serviceScope) }
+                        }
+
+                        if (sessionToken != activeSessionToken.get()) {
+                            stopPreviousEnginesSafely()
+                            return@launch
+                        }
+                        lastHandedOffSnapshot = buildSnapshotFor(primaryAtStart ?: currentPrimaryNetwork)
+                        lastHandoffDownBytes = XrayEngineState.state.value.totalDownBytes
+                        XrayEngineState.updateStatus(
+                            status = TunnelStatus.CONNECTED,
+                            profileId = profile.id,
+                            profileName = profileName,
+                            protocolLabel = protocolLabel,
+                            isReality = profile.isReality,
+                            configJson = effectiveConfigJson,
+                        )
+                        NekoWidgetManager.refreshAll(this@XrayVpnService)
+                    }
+                    startTrafficMonitor(
+                        sessionToken = sessionToken,
+                        profile = profile,
+                        profileName = profileName,
+                        protocolLabel = protocolLabel,
+                        proxyOnly = proxyOnly,
+                    )
+                }.onFailure { err ->
+                    if (err is CancellationException) {
+                        if (sessionToken != activeSessionToken.get()) {
+                            stopPreviousEnginesSafely()
+                        }
+                        return@onFailure
+                    }
+                    if (sessionToken == activeSessionToken.get()) {
+                        XrayEngineState.appendLog("ERROR", "Tunnel failed: ${err.message ?: err.javaClass.simpleName}")
+                        XrayEngineState.updateStatus(
+                            status = TunnelStatus.ERROR,
+                            error = err.message ?: "VPN start failed",
+                        )
+                        stopTunnelInternal()
+                        NekoWidgetManager.refreshAll(this@XrayVpnService)
+                    } else {
+                        stopPreviousEnginesSafely()
+                    }
+                }
+            } finally {
+                runCatching { if (lock.isLocked) lock.unlock() }
             }
         }
     }
@@ -584,6 +1429,26 @@ class XrayVpnService : VpnService() {
         }
     }
 
+    private suspend fun startNativeCoreWithRetry(configJson: String, tunFd: Int, expectedSessionToken: Long) {
+        var lastError: Throwable? = null
+        for (attempt in 1..3) {
+            if (expectedSessionToken != activeSessionToken.get()) {
+                throw CancellationException("Tunnel session superseded before core start")
+            }
+            val res = runCatching {
+                startNativeCoreOrThrow(configJson, tunFd)
+            }
+            if (res.isSuccess) return
+            lastError = res.exceptionOrNull()
+            XrayEngineState.appendLog(
+                "WARN",
+                "Xray start attempt $attempt/3 failed: ${lastError?.message ?: lastError?.javaClass?.simpleName}",
+            )
+            if (attempt < 3) delay(200L * attempt)
+        }
+        throw (lastError ?: IllegalStateException("Failed to start Xray core"))
+    }
+
     private fun startNativeCoreOrThrow(configJson: String, tunFd: Int) {
         val assetStatus = XrayAssetHelper.ensureInitialized(this@XrayVpnService)
         XrayEngineState.appendLog("INFO", "Initialized Xray core env (${assetStatus.assetDir}), starting core loop (tunFd=$tunFd)...")
@@ -607,66 +1472,181 @@ class XrayVpnService : VpnService() {
         }
         val controller = Libv2ray.newCoreController(callbackHandler)
         coreControllerInstance = controller
-        controller.startLoop(configJson, tunFd)
+        try {
+            controller.startLoop(configJson, tunFd)
+        } catch (t: Throwable) {
+            coreControllerInstance = null
+            throw t
+        }
     }
 
-    private fun stopPreviousEnginesOnly() {
+    private fun closeAllTunDescriptors() {
+        val primary = tunInterface
+        tunInterface = null
+        if (primary != null) {
+            activeTunDescriptors.remove(primary)
+            runCatching { primary.close() }
+        }
+        val iterator = activeTunDescriptors.iterator()
+        while (iterator.hasNext()) {
+            val fd = iterator.next()
+            iterator.remove()
+            runCatching { fd.close() }
+        }
+    }
+
+    private suspend fun stopNativeCoreAndTunSafely() = withContext(NonCancellable) {
+        val ctrl = coreControllerInstance
+        coreControllerInstance = null
+        val pfd = tunInterface
+        tunInterface = null
+        if (pfd != null) {
+            activeTunDescriptors.remove(pfd)
+        }
+
+        try {
+            if (ctrl != null) {
+                val stopJob = jniControlScope.launch {
+                    runCatching {
+                        if (ctrl.isRunning) ctrl.stopLoop()
+                    }
+                }
+                val finishedEarly = withTimeoutOrNull(250L) {
+                    stopJob.join()
+                    true
+                } ?: false
+                runCatching { pfd?.close() }
+                closeAllTunDescriptors()
+                if (!finishedEarly) {
+                    withTimeoutOrNull(950L) { stopJob.join() }
+                }
+            }
+        } finally {
+            runCatching { pfd?.close() }
+            closeAllTunDescriptors()
+        }
+    }
+
+    private fun forceReleaseNativeResources() {
+        networkHandoffJob?.cancel()
+        networkHandoffJob = null
+        pendingHandoffSnapshot = null
         trafficMonitorJob?.cancel()
         trafficMonitorJob = null
         runCatching { kotlinTunForwarder?.stop() }
         kotlinTunForwarder = null
         runCatching { localProxyServer?.stop() }
         localProxyServer = null
-        runCatching {
-            coreControllerInstance?.let { ctrl ->
-                if (ctrl.isRunning) ctrl.stopLoop()
-            }
-        }
-        coreControllerInstance = null
         runCatching { sshTunnelBridge?.stop() }
         sshTunnelBridge = null
-        runCatching { tunInterface?.close() }
-        tunInterface = null
+        closeAllTunDescriptors()
+        val ctrl = coreControllerInstance
+        coreControllerInstance = null
+        if (ctrl != null) {
+            jniControlScope.launch {
+                runCatching { if (ctrl.isRunning) ctrl.stopLoop() }
+            }
+        }
+    }
+
+    private suspend fun stopPreviousEnginesSafely() = withContext(NonCancellable) {
+        networkHandoffJob?.cancel()
+        networkHandoffJob = null
+        pendingHandoffSnapshot = null
+        trafficMonitorJob?.cancel()
+        trafficMonitorJob = null
+        runCatching { kotlinTunForwarder?.stop() }
+        kotlinTunForwarder = null
+        runCatching { localProxyServer?.stop() }
+        localProxyServer = null
+        stopNativeCoreAndTunSafely()
+        runCatching { sshTunnelBridge?.stop() }
+        sshTunnelBridge = null
     }
 
     private fun stopTunnel() {
         val stopToken = activeSessionToken.incrementAndGet()
+        handoffGeneration.incrementAndGet()
+        bootstrapJob?.cancel()
+        bootstrapJob = null
         activeStartJob?.cancel()
         activeStartJob = null
+        if (!inHandoffCriticalSection.get()) {
+            networkHandoffJob?.cancel()
+            networkHandoffJob = null
+        }
+        pendingHandoffSnapshot = null
+        activeTunnelSpec = null
         XrayEngineState.appendLog("INFO", "Stopping Xray session...")
         XrayEngineState.updateStatus(status = TunnelStatus.IDLE)
         NekoWidgetManager.refreshAll(this)
         serviceScope.launch {
-            engineMutex.withLock {
+            val lock = engineMutexRef.get()
+            val acquired = withTimeoutOrNull(800L) {
+                lock.lock()
+                true
+            } ?: false
+            if (acquired) {
+                try {
+                    if (stopToken == activeSessionToken.get()) {
+                        stopTunnelInternal()
+                        NekoWidgetManager.refreshAll(this@XrayVpnService)
+                    }
+                } finally {
+                    runCatching { if (lock.isLocked) lock.unlock() }
+                }
+            } else {
+                // Mutex was held by a stalled native/handoff operation: force immediate TUN teardown & reset mutex
+                XrayEngineState.appendLog("WARN", "Force-closing stalled VPN interface on stop.")
                 if (stopToken == activeSessionToken.get()) {
-                    stopTunnelInternal()
+                    forceReleaseNativeResources()
+                    lastHandedOffSnapshot = null
+                    pendingHandoffSnapshot = null
+                    bindProcessToUnderlyingNetwork(null)
+                    runCatching { setUnderlyingNetworks(null) }
+                    engineMutexRef.compareAndSet(lock, Mutex())
+                    runCatching { stopForeground(STOP_FOREGROUND_REMOVE) }
+                    runCatching { stopSelf() }
                     NekoWidgetManager.refreshAll(this@XrayVpnService)
                 }
             }
         }
     }
 
-    private fun stopTunnelInternal() {
-        stopPreviousEnginesOnly()
+    private suspend fun stopTunnelInternal() = withContext(NonCancellable) {
+        stopPreviousEnginesSafely()
+        lastHandedOffSnapshot = null
+        pendingHandoffSnapshot = null
+        bindProcessToUnderlyingNetwork(null)
+        runCatching { setUnderlyingNetworks(null) }
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
     }
 
     override fun onRevoke() {
         XrayEngineState.appendLog("WARN", "VPN permission revoked by system.")
+        systemStartedAlwaysOn = false
         stopTunnel()
         super.onRevoke()
     }
 
     override fun onDestroy() {
+        if (activeServiceInstance === this) {
+            activeServiceInstance = null
+        }
         activeSessionToken.incrementAndGet()
+        handoffGeneration.incrementAndGet()
+        bootstrapJob?.cancel()
         activeStartJob?.cancel()
-        stopPreviousEnginesOnly()
+        networkHandoffJob?.cancel()
+        forceReleaseNativeResources()
+        unregisterUnderlyingNetworkMonitor()
         if (XrayEngineState.state.value.status != TunnelStatus.ERROR) {
             XrayEngineState.updateStatus(status = TunnelStatus.IDLE)
         }
         NekoWidgetManager.refreshAll(this)
         serviceScope.cancel()
+        jniControlScope.cancel()
         super.onDestroy()
     }
 
@@ -711,7 +1691,15 @@ class XrayVpnService : VpnService() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
 
-        val modeBadge = if (proxyOnly) "Proxy Only" else "VPN · TUN"
+        val alwaysOn = isAlwaysOnActive()
+        val lockdown = isLockdownActive()
+        val netLabel = XrayEngineState.state.value.underlyingNetworkLabel
+        val modeBadge = buildString {
+            append(if (proxyOnly) "Proxy Only" else "VPN · TUN")
+            if (lockdown) append(" · Lockdown")
+            else if (alwaysOn) append(" · Always-On")
+            if (netLabel.isNotBlank()) append(" · $netLabel")
+        }
         val cleanProto = protocolLabel.ifBlank { profile.protocol.displayName }
         val serverInfo = if (profile.serverAddress.isNotBlank()) {
             "${profile.serverAddress}:${profile.serverPort}"
@@ -777,7 +1765,18 @@ class XrayVpnService : VpnService() {
             .setContentIntent(mainPendingIntent())
             .addAction(R.drawable.ic_notif_reconnect, getString(R.string.action_reconnect), reconnectPending)
             .addAction(R.drawable.ic_widget_next, getString(R.string.action_next_node), nextNodePending)
-            .addAction(R.drawable.ic_notif_stop, getString(R.string.action_disconnect), stopPending)
+
+        if (!alwaysOn) {
+            builder.addAction(R.drawable.ic_notif_stop, getString(R.string.action_disconnect), stopPending)
+        } else {
+            val vpnSettingsPending = PendingIntent.getActivity(
+                this,
+                4,
+                Intent(Settings.ACTION_VPN_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            )
+            builder.addAction(R.drawable.ic_notif_reconnect, "Always-On", vpnSettingsPending)
+        }
 
         notificationLargeIcon?.let { builder.setLargeIcon(it) }
 

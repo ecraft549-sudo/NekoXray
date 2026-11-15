@@ -38,6 +38,10 @@ data class EngineRuntimeState(
     val isNativeCoreLinked: Boolean = false,
     val hasGeoIp: Boolean = false,
     val hasGeoSite: Boolean = false,
+    val underlyingNetworkLabel: String = "",
+    val isAlwaysOn: Boolean = false,
+    val isLockdown: Boolean = false,
+    val networkHandoffCount: Int = 0,
     val lastError: String? = null,
     val logs: List<LogEntry> = emptyList(),
 )
@@ -95,6 +99,9 @@ object XrayEngineState {
                 downSpeedBps = if (resetMetrics) 0L else current.downSpeedBps,
                 totalUpBytes = if (resetMetrics) 0L else current.totalUpBytes,
                 totalDownBytes = if (resetMetrics) 0L else current.totalDownBytes,
+                networkHandoffCount = if (resetMetrics) 0 else current.networkHandoffCount,
+                isAlwaysOn = if (status == TunnelStatus.IDLE) false else current.isAlwaysOn,
+                isLockdown = if (status == TunnelStatus.IDLE) false else current.isLockdown,
                 activeConfigJson = configJson,
                 lastError = error,
             )
@@ -132,6 +139,22 @@ object XrayEngineState {
 
     fun updateGeoAssets(hasGeoIp: Boolean, hasGeoSite: Boolean) {
         _state.update { it.copy(hasGeoIp = hasGeoIp, hasGeoSite = hasGeoSite) }
+    }
+
+    fun updateNetworkState(
+        underlyingNetworkLabel: String = _state.value.underlyingNetworkLabel,
+        isAlwaysOn: Boolean = _state.value.isAlwaysOn,
+        isLockdown: Boolean = _state.value.isLockdown,
+        incrementHandoff: Boolean = false,
+    ) {
+        _state.update { current ->
+            current.copy(
+                underlyingNetworkLabel = underlyingNetworkLabel,
+                isAlwaysOn = isAlwaysOn,
+                isLockdown = isLockdown,
+                networkHandoffCount = if (incrementHandoff) current.networkHandoffCount + 1 else current.networkHandoffCount,
+            )
+        }
     }
 
     fun clearLogs() {

@@ -142,6 +142,36 @@ fun SettingsScreen(
                         }
                     }
 
+                    if (state.engineState.isAlwaysOn || state.engineState.isLockdown) {
+                        Text(
+                            text = if (state.engineState.isLockdown) {
+                                "System Always-On VPN + Lockdown active (TUN mode enforced)"
+                            } else {
+                                "System Always-On VPN active"
+                            },
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                    }
+
+                    OutlinedButton(
+                        onClick = {
+                            runCatching {
+                                val intent = android.content.Intent(android.provider.Settings.ACTION_VPN_SETTINGS).apply {
+                                    addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                                }
+                                context.startActivity(intent)
+                            }.onFailure {
+                                onNotice("VPN settings unavailable on this device")
+                            }
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("open_system_vpn_settings_button"),
+                    ) {
+                        Text("Always-On VPN & Lockdown (System Settings)")
+                    }
+
                     SettingToggle(
                         title = strings.darkThemeTitle,
                         subtitle = strings.darkThemeSubtitle,

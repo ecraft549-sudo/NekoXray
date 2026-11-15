@@ -454,6 +454,7 @@ class NekoViewModel(application: Application) : AndroidViewModel(application) {
             current.engineState.status == TunnelStatus.CONNECTING
         ) {
             XrayEngineState.updateStatus(status = TunnelStatus.IDLE)
+            XrayVpnService.requestImmediateStop()
             val sent = runCatching { app.startService(XrayVpnService.buildStopIntent(app)) }.isSuccess
             if (!sent) {
                 runCatching { app.stopService(Intent(app, XrayVpnService::class.java)) }

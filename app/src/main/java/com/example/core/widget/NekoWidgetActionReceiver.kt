@@ -39,6 +39,7 @@ class NekoWidgetActionReceiver : BroadcastReceiver() {
         val runtime = XrayEngineState.state.value
         if (runtime.status == TunnelStatus.CONNECTED || runtime.status == TunnelStatus.CONNECTING) {
             XrayEngineState.updateStatus(status = TunnelStatus.IDLE)
+            XrayVpnService.requestImmediateStop()
             val sent = runCatching { context.startService(XrayVpnService.buildStopIntent(context)) }.isSuccess
             if (!sent) {
                 runCatching { context.stopService(Intent(context, XrayVpnService::class.java)) }

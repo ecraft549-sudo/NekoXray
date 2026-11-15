@@ -91,6 +91,26 @@ class SshTunnelBridge(
         }
     }
 
+    fun reconnectSession(reason: String = "network handoff") {
+        if (!running.get() || directTcpConnector != null) return
+        synchronized(sessionLock) {
+            runCatching { session?.disconnect() }
+            session = null
+            runCatching {
+                session = connectSshSession(profile, vpnService)
+                XrayEngineState.appendLog(
+                    "INFO",
+                    "SSH session re-established after $reason (${profile.serverAddress}:${profile.serverPort}).",
+                )
+            }.onFailure { err ->
+                XrayEngineState.appendLog(
+                    "WARN",
+                    "SSH session lazy reconnect queued after $reason: ${err.message ?: err.javaClass.simpleName}",
+                )
+            }
+        }
+    }
+
     private fun getOrConnectSession(): Session {
         val current = session
         if (current != null && current.isConnected) return current
@@ -523,7 +543,11 @@ class SshTunnelBridge(
                     val s = Socket()
                     s.tcpNoDelay = true
                     s.keepAlive = true
-                    vpnService?.protect(s)
+                    if (vpnService is XrayVpnService) {
+                        vpnService.bindSocketToUnderlyingNetwork(s)
+                    } else {
+                        vpnService?.protect(s)
+                    }
                     s.connect(InetSocketAddress(h, p), timeoutMs)
                     return s
                 }

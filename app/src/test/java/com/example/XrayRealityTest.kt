@@ -1077,4 +1077,263 @@ class XrayRealityTest {
             }
         )
     }
+
+    @Test
+    fun `underlying physical network ranking and always-on lockdown detection work accurately`() {
+        val context = androidx.test.core.app.ApplicationProvider.getApplicationContext<android.content.Context>()
+
+        // 1. Verify AndroidManifest declares SUPPORTS_ALWAYS_ON = true on XrayVpnService
+        val serviceComponent = android.content.ComponentName(context, com.example.core.vpn.XrayVpnService::class.java)
+        val serviceInfo = context.packageManager.getServiceInfo(
+            serviceComponent,
+            android.content.pm.PackageManager.GET_META_DATA,
+        )
+        assertNotNull("Expected meta-data on XrayVpnService", serviceInfo.metaData)
+        assertEquals(
+            true,
+            serviceInfo.metaData.getBoolean("android.net.VpnService.SUPPORTS_ALWAYS_ON", false),
+        )
+
+        // 2. Verify Always-On invocation detection (null intent, android.net.VpnService action, and unflagged start vs self-initiated)
+        assertTrue(com.example.core.vpn.XrayVpnService.isSystemAlwaysOnInvocation(null))
+        val systemAlwaysOnIntent = android.content.Intent(android.net.VpnService.SERVICE_INTERFACE)
+        assertTrue(com.example.core.vpn.XrayVpnService.isSystemAlwaysOnInvocation(systemAlwaysOnIntent))
+        val unflaggedIntent = android.content.Intent(context, com.example.core.vpn.XrayVpnService::class.java)
+        assertTrue(com.example.core.vpn.XrayVpnService.isSystemAlwaysOnInvocation(unflaggedIntent))
+
+        val profile = com.example.core.model.ProxyProfile(
+            protocol = ProxyProtocol.VLESS,
+            serverAddress = "vpn.example.com",
+            serverPort = 443,
+            uuid = "32622b0f-1a68-4e38-a7f7-a557edc26979",
+        )
+        val selfStartIntent = com.example.core.vpn.XrayVpnService.buildStartIntent(
+            context = context,
+            profile = profile,
+            protocolLabel = "VLESS REALITY",
+            configJson = "{}",
+            mtu = 1500,
+            bypassLan = true,
+            proxyOnly = false,
+            settings = XraySettings(),
+            rules = emptyList(),
+        )
+        assertEquals(false, com.example.core.vpn.XrayVpnService.isSystemAlwaysOnInvocation(selfStartIntent))
+        val selfStopIntent = com.example.core.vpn.XrayVpnService.buildStopIntent(context)
+        assertEquals(false, com.example.core.vpn.XrayVpnService.isSystemAlwaysOnInvocation(selfStopIntent))
+
+        // 3. Verify rankPhysicalNetworks prioritizes validated Wi-Fi over Cellular and ignores VPN transports
+        val netCell = org.robolectric.shadows.ShadowNetwork.newInstance(101)
+        val netWifi = org.robolectric.shadows.ShadowNetwork.newInstance(102)
+        val netVpn = org.robolectric.shadows.ShadowNetwork.newInstance(103)
+
+        val capsCell = org.robolectric.shadows.ShadowNetworkCapabilities.newInstance().apply {
+            val shadow = org.robolectric.Shadows.shadowOf(this)
+            shadow.addTransportType(android.net.NetworkCapabilities.TRANSPORT_CELLULAR)
+            shadow.addCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            shadow.addCapability(android.net.NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
+            shadow.addCapability(android.net.NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+        }
+        val capsWifi = org.robolectric.shadows.ShadowNetworkCapabilities.newInstance().apply {
+            val shadow = org.robolectric.Shadows.shadowOf(this)
+            shadow.addTransportType(android.net.NetworkCapabilities.TRANSPORT_WIFI)
+            shadow.addCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            shadow.addCapability(android.net.NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
+            shadow.addCapability(android.net.NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+        }
+        val capsVpn = org.robolectric.shadows.ShadowNetworkCapabilities.newInstance().apply {
+            val shadow = org.robolectric.Shadows.shadowOf(this)
+            shadow.addTransportType(android.net.NetworkCapabilities.TRANSPORT_VPN)
+            shadow.addCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET)
+        }
+
+        val ranked = com.example.core.vpn.XrayVpnService.rankPhysicalNetworks(
+            mapOf(
+                netCell to capsCell,
+                netWifi to capsWifi,
+                netVpn to capsVpn,
+            )
+        )
+        assertEquals("Expected VPN network to be excluded and Wi-Fi ranked before Cellular", listOf(netWifi, netCell), ranked)
+        assertEquals("Wi-Fi", com.example.core.vpn.XrayVpnService.formatNetworkCapabilitiesLabel(capsWifi))
+        assertEquals("Cellular (LTE/5G)", com.example.core.vpn.XrayVpnService.formatNetworkCapabilitiesLabel(capsCell))
+
+        // When Wi-Fi drops, Cellular becomes primary
+        val rankedAfterWifiDrop = com.example.core.vpn.XrayVpnService.rankPhysicalNetworks(
+            mapOf(netCell to capsCell)
+        )
+        assertEquals(listOf(netCell), rankedAfterWifiDrop)
+
+        // Unvalidated Wi-Fi (even if marked activeDefaultNetwork) must yield to validated Cellular
+        val capsWifiUnvalidated = org.robolectric.shadows.ShadowNetworkCapabilities.newInstance().apply {
+            val shadow = org.robolectric.Shadows.shadowOf(this)
+            shadow.addTransportType(android.net.NetworkCapabilities.TRANSPORT_WIFI)
+            shadow.addCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            shadow.addCapability(android.net.NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
+        }
+        val rankedValidatedFirst = com.example.core.vpn.XrayVpnService.rankPhysicalNetworks(
+            networks = mapOf(netWifi to capsWifiUnvalidated, netCell to capsCell),
+            activeDefaultNetwork = netWifi,
+        )
+        assertEquals("Validated Cellular must rank ahead of unvalidated Wi-Fi", listOf(netCell, netWifi), rankedValidatedFirst)
+
+        // LinkProperties signature must detect when Cellular acquires a routable IP
+        val emptyLp = android.net.LinkProperties().apply { interfaceName = "rmnet_data0" }
+        val (_, hasEmptyIp) = com.example.core.vpn.XrayVpnService.buildLinkSignature(emptyLp)
+        assertEquals(false, hasEmptyIp)
+
+        val readyLp = android.net.LinkProperties().apply {
+            interfaceName = "rmnet_data0"
+            val addr = java.net.InetAddress.getByName("10.12.34.56")
+            val linkAddr = runCatching {
+                android.net.LinkAddress::class.java.getDeclaredConstructor(
+                    java.net.InetAddress::class.java,
+                    Int::class.javaPrimitiveType,
+                    Int::class.javaPrimitiveType,
+                    Int::class.javaPrimitiveType,
+                ).apply { isAccessible = true }.newInstance(addr, 24, 0, 0)
+            }.getOrElse {
+                android.net.LinkAddress::class.java.getDeclaredConstructor(String::class.java)
+                    .apply { isAccessible = true }
+                    .newInstance("10.12.34.56/24")
+            }
+            setLinkAddresses(listOf(linkAddr))
+            setDnsServers(listOf(java.net.InetAddress.getByName("8.8.8.8")))
+        }
+        val (readySig, hasReadyIp) = com.example.core.vpn.XrayVpnService.buildLinkSignature(readyLp)
+        assertTrue(hasReadyIp)
+        assertTrue(readySig.contains("10.12.34.56"))
+
+        // Verify XrayVpnService networkCallback handles Wi-Fi -> Offline -> Cellular (LinkProperties + Validated)
+        val controller = org.robolectric.Robolectric.buildService(com.example.core.vpn.XrayVpnService::class.java).create()
+        val vpnService = controller.get()
+        try {
+            com.example.core.vpn.XrayEngineState.clearLogs()
+            com.example.core.vpn.XrayEngineState.updateStatus(
+                status = com.example.core.vpn.TunnelStatus.CONNECTED,
+                profileId = 1L,
+                profileName = "Test Node",
+            )
+            vpnService.networkCallbackForTest.onCapabilitiesChanged(netWifi, capsWifi)
+            assertEquals("Wi-Fi", com.example.core.vpn.XrayEngineState.state.value.underlyingNetworkLabel)
+
+            vpnService.networkCallbackForTest.onLost(netWifi)
+            assertEquals("Offline", com.example.core.vpn.XrayEngineState.state.value.underlyingNetworkLabel)
+
+            // Cellular arrives initially unvalidated & without IP, then receives LinkProperties & VALIDATED
+            val capsCellUnvalidated = org.robolectric.shadows.ShadowNetworkCapabilities.newInstance().apply {
+                val shadow = org.robolectric.Shadows.shadowOf(this)
+                shadow.addTransportType(android.net.NetworkCapabilities.TRANSPORT_CELLULAR)
+                shadow.addCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                shadow.addCapability(android.net.NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
+            }
+            vpnService.networkCallbackForTest.onCapabilitiesChanged(netCell, capsCellUnvalidated)
+            assertEquals("Cellular (LTE/5G)", com.example.core.vpn.XrayEngineState.state.value.underlyingNetworkLabel)
+
+            vpnService.networkCallbackForTest.onLinkPropertiesChanged(netCell, readyLp)
+            vpnService.networkCallbackForTest.onCapabilitiesChanged(netCell, capsCell)
+
+            val handoffLogs = com.example.core.vpn.XrayEngineState.state.value.logs
+            assertTrue(
+                "Expected handoff log for onLinkPropertiesChanged with ip=true, got: $handoffLogs",
+                handoffLogs.any { it.message.contains("onLinkPropertiesChanged") && it.message.contains("ip=true") },
+            )
+        } finally {
+            com.example.core.vpn.XrayEngineState.updateStatus(status = com.example.core.vpn.TunnelStatus.IDLE)
+            controller.destroy()
+        }
+    }
+
+    @Test
+    fun `rapid network switches and immediate stop recover even when engine mutex is stalled`() {
+        val context = androidx.test.core.app.ApplicationProvider.getApplicationContext<android.content.Context>()
+        val controller = org.robolectric.Robolectric.buildService(com.example.core.vpn.XrayVpnService::class.java).create()
+        val vpnService = controller.get()
+        try {
+            val netCell = org.robolectric.shadows.ShadowNetwork.newInstance(201)
+            val netWifi = org.robolectric.shadows.ShadowNetwork.newInstance(202)
+            val capsWifi = org.robolectric.shadows.ShadowNetworkCapabilities.newInstance().apply {
+                val shadow = org.robolectric.Shadows.shadowOf(this)
+                shadow.addTransportType(android.net.NetworkCapabilities.TRANSPORT_WIFI)
+                shadow.addCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                shadow.addCapability(android.net.NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
+                shadow.addCapability(android.net.NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+            }
+            val capsCell = org.robolectric.shadows.ShadowNetworkCapabilities.newInstance().apply {
+                val shadow = org.robolectric.Shadows.shadowOf(this)
+                shadow.addTransportType(android.net.NetworkCapabilities.TRANSPORT_CELLULAR)
+                shadow.addCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                shadow.addCapability(android.net.NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
+                shadow.addCapability(android.net.NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+            }
+
+            // Simulate CONNECTED state and rapid Wi-Fi <-> Cellular flapping
+            com.example.core.vpn.XrayEngineState.clearLogs()
+            com.example.core.vpn.XrayEngineState.updateStatus(
+                status = com.example.core.vpn.TunnelStatus.CONNECTED,
+                profileId = 99L,
+                profileName = "Flap Node",
+            )
+            repeat(6) {
+                vpnService.networkCallbackForTest.onCapabilitiesChanged(netWifi, capsWifi)
+                vpnService.networkCallbackForTest.onLost(netWifi)
+                vpnService.networkCallbackForTest.onCapabilitiesChanged(netCell, capsCell)
+                vpnService.networkCallbackForTest.onLost(netCell)
+            }
+
+            // Simulate a stalled native call holding the current engineMutex AND an open TUN ParcelFileDescriptor
+            val mutexRefField = com.example.core.vpn.XrayVpnService::class.java.getDeclaredField("engineMutexRef").apply {
+                isAccessible = true
+            }
+            @Suppress("UNCHECKED_CAST")
+            val mutexRef = mutexRefField.get(vpnService) as java.util.concurrent.atomic.AtomicReference<kotlinx.coroutines.sync.Mutex>
+            val stalledMutex = kotlinx.coroutines.sync.Mutex(locked = true)
+            mutexRef.set(stalledMutex)
+
+            val pipe = android.os.ParcelFileDescriptor.createPipe()
+            val fakeTunPfd = pipe[0]
+            pipe[1].close()
+            val orphanPipe = android.os.ParcelFileDescriptor.createPipe()
+            val orphanTunPfd = orphanPipe[0]
+            orphanPipe[1].close()
+            val tunField = com.example.core.vpn.XrayVpnService::class.java.getDeclaredField("tunInterface").apply {
+                isAccessible = true
+            }
+            tunField.set(vpnService, fakeTunPfd)
+            val activeSetField = com.example.core.vpn.XrayVpnService::class.java.getDeclaredField("activeTunDescriptors").apply {
+                isAccessible = true
+            }
+            @Suppress("UNCHECKED_CAST")
+            val activeTunSet = activeSetField.get(vpnService) as MutableSet<android.os.ParcelFileDescriptor>
+            activeTunSet.add(fakeTunPfd)
+            activeTunSet.add(orphanTunPfd)
+
+            // Trigger immediate stop + ACTION_STOP while stalledMutex is held
+            com.example.core.vpn.XrayVpnService.requestImmediateStop()
+            vpnService.onStartCommand(com.example.core.vpn.XrayVpnService.buildStopIntent(context), 0, 1)
+
+            assertEquals(com.example.core.vpn.TunnelStatus.IDLE, com.example.core.vpn.XrayEngineState.state.value.status)
+
+            // Wait up to 2.5s for bounded 800ms mutex recovery to close fakeTunPfd and swap out stalledMutex
+            val deadline = System.currentTimeMillis() + 2500L
+            while (System.currentTimeMillis() < deadline &&
+                (tunField.get(vpnService) != null || activeTunSet.isNotEmpty() || mutexRef.get() === stalledMutex)
+            ) {
+                Thread.sleep(50L)
+            }
+            assertEquals("Expected stalled TUN fd to be force-closed and cleared", null, tunField.get(vpnService))
+            assertTrue("Expected all tracked activeTunDescriptors to be closed and cleared", activeTunSet.isEmpty())
+            assertTrue("Expected stalled mutex to be replaced by fresh unlocked Mutex", mutexRef.get() !== stalledMutex)
+            assertEquals(false, mutexRef.get().isLocked)
+            assertTrue(
+                "Expected force-closing warning log",
+                com.example.core.vpn.XrayEngineState.state.value.logs.any {
+                    it.message.contains("Force-closing stalled VPN interface")
+                },
+            )
+        } finally {
+            com.example.core.vpn.XrayEngineState.updateStatus(status = com.example.core.vpn.TunnelStatus.IDLE)
+            controller.destroy()
+        }
+    }
 }

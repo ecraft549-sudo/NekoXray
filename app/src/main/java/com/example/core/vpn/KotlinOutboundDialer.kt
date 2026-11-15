@@ -61,7 +61,11 @@ class KotlinOutboundDialer(
         val sock = Socket()
         sock.tcpNoDelay = true
         if (vpnService != null) {
-            val protectedOk = vpnService.protect(sock)
+            val protectedOk = if (vpnService is XrayVpnService) {
+                vpnService.bindSocketToUnderlyingNetwork(sock)
+            } else {
+                vpnService.protect(sock)
+            }
             if (!protectedOk) {
                 XrayEngineState.appendLog("WARN", "VpnService.protect() returned false for $host:$port")
             }
@@ -72,7 +76,11 @@ class KotlinOutboundDialer(
 
     fun openProtectedDatagramSocket(): DatagramSocket {
         val ds = DatagramSocket()
-        vpnService?.protect(ds)
+        if (vpnService is XrayVpnService) {
+            vpnService.bindDatagramSocketToUnderlyingNetwork(ds)
+        } else {
+            vpnService?.protect(ds)
+        }
         return ds
     }
 

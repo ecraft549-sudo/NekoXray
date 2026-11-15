@@ -121,6 +121,18 @@ fun ToolsScreen(
                             color = if (state.engineState.hasGeoIp && state.engineState.hasGeoSite) SignalEmerald else SignalAmber,
                         )
                     }
+                    val netLabel = state.engineState.underlyingNetworkLabel.ifBlank { "Auto (Wi-Fi / Cellular)" }
+                    val handoffs = state.engineState.networkHandoffCount
+                    val alwaysOnBadge = when {
+                        state.engineState.isLockdown -> " • Always-On (Lockdown)"
+                        state.engineState.isAlwaysOn -> " • Always-On VPN"
+                        else -> ""
+                    }
+                    Text(
+                        text = "Network: $netLabel • Handoffs: $handoffs$alwaysOnBadge",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
             }
         }
