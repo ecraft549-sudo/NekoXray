@@ -435,4 +435,397 @@ class ScreenshotGeneratorTest {
             }
         }
     }
+
+    @Test
+    fun renderHeroBanner() {
+        val rootDir = File("..").takeIf { File(it, "settings.gradle.kts").exists() } ?: File(".")
+        val screenshotsDir = File(rootDir, "docs/screenshots")
+        if (!File(screenshotsDir, "01_profiles_dark.png").exists()) {
+            renderProfilesScreenshot()
+        }
+        if (!File(screenshotsDir, "02_routing_rules.png").exists()) {
+            renderRoutingScreenshot()
+        }
+        if (!File(screenshotsDir, "03_tools_reality_keygen.png").exists()) {
+            renderToolsScreenshot()
+        }
+
+        val w = 1600
+        val h = 780
+        val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bmp)
+        val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG or android.graphics.Paint.FILTER_BITMAP_FLAG)
+
+        // 1. Base obsidian background (#070B12 -> #0B1220)
+        paint.shader = android.graphics.LinearGradient(
+            0f, 0f, w.toFloat(), h.toFloat(),
+            intArrayOf(0xFF060A11.toInt(), 0xFF0A111E.toInt(), 0xFF070B12.toInt()),
+            floatArrayOf(0f, 0.55f, 1f),
+            android.graphics.Shader.TileMode.CLAMP,
+        )
+        canvas.drawRect(0f, 0f, w.toFloat(), h.toFloat(), paint)
+        paint.shader = null
+
+        // 2. Ambient radial glows (Cyan top-left & center-right, Violet right, Emerald bottom-right)
+        val glows = listOf(
+            Triple(220f, 120f, 520f to 0x3800E5FF),
+            Triple(1160f, 390f, 540f to 0x4238BDF8),
+            Triple(1380f, 240f, 500f to 0x408B5CF6),
+            Triple(1020f, 640f, 420f to 0x2C34D399),
+        )
+        for ((gx, gy, radColor) in glows) {
+            val (radius, color) = radColor
+            paint.shader = android.graphics.RadialGradient(
+                gx, gy, radius,
+                intArrayOf(color, 0x00000000),
+                floatArrayOf(0f, 1f),
+                android.graphics.Shader.TileMode.CLAMP,
+            )
+            canvas.drawCircle(gx, gy, radius, paint)
+        }
+        paint.shader = null
+
+        // 3. Subtle 48px cyber grid matching docs/styles.css (.bg-grid)
+        val gridPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            color = 0x1038BDF8
+            strokeWidth = 1f
+        }
+        var gx = 0f
+        while (gx <= w) {
+            canvas.drawLine(gx, 0f, gx, h.toFloat(), gridPaint)
+            gx += 48f
+        }
+        var gy = 0f
+        while (gy <= h) {
+            canvas.drawLine(0f, gy, w.toFloat(), gy, gridPaint)
+            gy += 48f
+        }
+
+        // Helper to draw a stylized phone frame around a screenshot
+        fun drawPhoneMockup(
+            screenBmp: Bitmap,
+            cx: Float,
+            cy: Float,
+            phoneW: Float,
+            rotationDeg: Float,
+            alpha: Int = 255,
+            highlightBorder: Boolean = false,
+        ) {
+            val aspect = screenBmp.height.toFloat() / screenBmp.width.toFloat()
+            val phoneH = phoneW * aspect
+            val bezel = 12f
+            val outerW = phoneW + bezel * 2
+            val outerH = phoneH + bezel * 2
+            val outerCorner = 38f
+            val innerCorner = 28f
+
+            canvas.save()
+            canvas.translate(cx, cy)
+            canvas.rotate(rotationDeg)
+
+            // Drop shadow
+            val shadowPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+                color = android.graphics.Color.argb((alpha * 0.65f).toInt(), 0, 0, 0)
+                setShadowLayer(42f, 0f, 22f, android.graphics.Color.argb((alpha * 0.75f).toInt(), 0, 0, 0))
+            }
+            val outerRect = android.graphics.RectF(-outerW / 2f, -outerH / 2f, outerW / 2f, outerH / 2f)
+            canvas.drawRoundRect(outerRect, outerCorner, outerCorner, shadowPaint)
+
+            // Phone chassis fill (#0A0F1A)
+            val bodyPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+                color = android.graphics.Color.argb(alpha, 10, 15, 26)
+                style = android.graphics.Paint.Style.FILL
+            }
+            canvas.drawRoundRect(outerRect, outerCorner, outerCorner, bodyPaint)
+
+            // Screen clipped to inner rounded rect
+            val innerRect = android.graphics.RectF(-phoneW / 2f, -phoneH / 2f, phoneW / 2f, phoneH / 2f)
+            val clipPath = android.graphics.Path().apply {
+                addRoundRect(innerRect, innerCorner, innerCorner, android.graphics.Path.Direction.CW)
+            }
+            canvas.save()
+            canvas.clipPath(clipPath)
+            val bmpPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG or android.graphics.Paint.FILTER_BITMAP_FLAG).apply {
+                this.alpha = alpha
+            }
+            canvas.drawBitmap(
+                screenBmp,
+                android.graphics.Rect(0, 0, screenBmp.width, screenBmp.height),
+                innerRect,
+                bmpPaint,
+            )
+            canvas.restore()
+
+            // Speaker notch pill at top
+            val notchW = phoneW * 0.30f
+            val notchH = 14f
+            val notchRect = android.graphics.RectF(
+                -notchW / 2f,
+                -phoneH / 2f + 8f,
+                notchW / 2f,
+                -phoneH / 2f + 8f + notchH,
+            )
+            val notchPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+                color = android.graphics.Color.argb(alpha, 6, 10, 18)
+            }
+            canvas.drawRoundRect(notchRect, 99f, 99f, notchPaint)
+
+            // Outer glowing border
+            val borderPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+                style = android.graphics.Paint.Style.STROKE
+                strokeWidth = if (highlightBorder) 2.5f else 1.6f
+                if (highlightBorder) {
+                    shader = android.graphics.LinearGradient(
+                        -outerW / 2f, -outerH / 2f, outerW / 2f, outerH / 2f,
+                        intArrayOf(0xFF38BDF8.toInt(), 0xFFA78BFA.toInt(), 0xFF34D399.toInt()),
+                        floatArrayOf(0f, 0.55f, 1f),
+                        android.graphics.Shader.TileMode.CLAMP,
+                    )
+                } else {
+                    color = android.graphics.Color.argb((alpha * 0.45f).toInt(), 148, 163, 184)
+                }
+            }
+            canvas.drawRoundRect(outerRect, outerCorner, outerCorner, borderPaint)
+            canvas.restore()
+        }
+
+        val screenProfiles = android.graphics.BitmapFactory.decodeFile(File(screenshotsDir, "01_profiles_dark.png").absolutePath)
+        val screenRouting = android.graphics.BitmapFactory.decodeFile(File(screenshotsDir, "02_routing_rules.png").absolutePath)
+        val screenTools = android.graphics.BitmapFactory.decodeFile(File(screenshotsDir, "03_tools_reality_keygen.png").absolutePath)
+
+        // 4. Draw 3 layered phone mockups on the right side
+        if (screenRouting != null) {
+            drawPhoneMockup(
+                screenBmp = screenRouting,
+                cx = 985f,
+                cy = 410f,
+                phoneW = 248f,
+                rotationDeg = -10f,
+                alpha = 215,
+                highlightBorder = false,
+            )
+        }
+        if (screenTools != null) {
+            drawPhoneMockup(
+                screenBmp = screenTools,
+                cx = 1365f,
+                cy = 415f,
+                phoneW = 248f,
+                rotationDeg = 10f,
+                alpha = 215,
+                highlightBorder = false,
+            )
+        }
+        if (screenProfiles != null) {
+            drawPhoneMockup(
+                screenBmp = screenProfiles,
+                cx = 1175f,
+                cy = 390f,
+                phoneW = 286f,
+                rotationDeg = 0f,
+                alpha = 255,
+                highlightBorder = true,
+            )
+        }
+
+        // 5. Draw floating glassmorphic cards on the phones (matching docs/index.html .floating-card)
+        fun drawFloatingCard(
+            x: Float,
+            y: Float,
+            cardW: Float,
+            cardH: Float,
+            dotColor: Int,
+            title: String,
+            subtitle: String,
+        ) {
+            val rect = android.graphics.RectF(x, y, x + cardW, y + cardH)
+            val bgPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+                color = 0xEC0D1526.toInt()
+                setShadowLayer(24f, 0f, 10f, 0x99000000.toInt())
+            }
+            canvas.drawRoundRect(rect, 16f, 16f, bgPaint)
+
+            val strokePaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+                style = android.graphics.Paint.Style.STROKE
+                strokeWidth = 1.5f
+                color = 0x6638BDF8
+            }
+            canvas.drawRoundRect(rect, 16f, 16f, strokePaint)
+
+            val dotPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+                color = dotColor
+            }
+            canvas.drawCircle(x + 24f, y + cardH / 2f, 6.5f, dotPaint)
+            dotPaint.color = (dotColor and 0x00FFFFFF) or 0x44000000
+            canvas.drawCircle(x + 24f, y + cardH / 2f, 12f, dotPaint)
+
+            val titlePaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+                color = 0xFFF8FAFC.toInt()
+                textSize = 16.5f
+                typeface = android.graphics.Typeface.create(android.graphics.Typeface.MONOSPACE, android.graphics.Typeface.BOLD)
+            }
+            val subPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+                color = 0xFF94A3B8.toInt()
+                textSize = 13.5f
+                typeface = android.graphics.Typeface.create(android.graphics.Typeface.SANS_SERIF, android.graphics.Typeface.NORMAL)
+            }
+            canvas.drawText(title, x + 44f, y + 29f, titlePaint)
+            canvas.drawText(subtitle, x + 44f, y + 50f, subPaint)
+        }
+
+        drawFloatingCard(
+            x = 748f,
+            y = 48f,
+            cardW = 320f,
+            cardH = 66f,
+            dotColor = 0xFF34D399.toInt(),
+            title = "VLESS · REALITY · VISION",
+            subtitle = "Post-Quantum ML-KEM-768 & XHTTP",
+        )
+        drawFloatingCard(
+            x = 1220f,
+            y = 666f,
+            cardW = 335f,
+            cardH = 66f,
+            dotColor = 0xFF38BDF8.toInt(),
+            title = "Wi-Fi ↔ 5G Seamless Handoff",
+            subtitle = "Widgets 4×2, 3×1, 1×1 & Always-On VPN",
+        )
+
+        // 6. Left-column hero copy & branding matching docs/index.html
+        val leftX = 78f
+
+        // Live pill badge at top
+        val pillRect = android.graphics.RectF(leftX, 82f, leftX + 410f, 124f)
+        val pillBg = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            color = 0xE00F1726.toInt()
+        }
+        val pillStroke = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            style = android.graphics.Paint.Style.STROKE
+            strokeWidth = 1.4f
+            color = 0x6B38BDF8
+        }
+        canvas.drawRoundRect(pillRect, 999f, 999f, pillBg)
+        canvas.drawRoundRect(pillRect, 999f, 999f, pillStroke)
+        val pulsePaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            color = 0xFF34D399.toInt()
+        }
+        canvas.drawCircle(leftX + 22f, 103f, 5.5f, pulsePaint)
+        val pillTextPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            color = 0xFFE2E8F0.toInt()
+            textSize = 15.5f
+            typeface = android.graphics.Typeface.create(android.graphics.Typeface.MONOSPACE, android.graphics.Typeface.BOLD)
+        }
+        canvas.drawText("Xray-core v26.10.31 · Native Android VPN", leftX + 38f, 108.5f, pillTextPaint)
+
+        // App icon avatar + Gradient "NekoXray" title
+        val lainFile = File(rootDir, "app/src/main/res/drawable/ic_launcher_lain.png")
+        val lainBmp = if (lainFile.exists()) android.graphics.BitmapFactory.decodeFile(lainFile.absolutePath) else null
+        if (lainBmp != null) {
+            val avatarSize = 78f
+            val ax = leftX
+            val ay = 156f
+            val avatarRect = android.graphics.RectF(ax, ay, ax + avatarSize, ay + avatarSize)
+            val avatarPath = android.graphics.Path().apply {
+                addRoundRect(avatarRect, 22f, 22f, android.graphics.Path.Direction.CW)
+            }
+            canvas.save()
+            canvas.clipPath(avatarPath)
+            canvas.drawBitmap(lainBmp, android.graphics.Rect(0, 0, lainBmp.width, lainBmp.height), avatarRect, paint)
+            canvas.restore()
+            val avatarStroke = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+                style = android.graphics.Paint.Style.STROKE
+                strokeWidth = 2.5f
+                shader = android.graphics.LinearGradient(
+                    ax, ay, ax + avatarSize, ay + avatarSize,
+                    intArrayOf(0xFF38BDF8.toInt(), 0xFFA78BFA.toInt(), 0xFF34D399.toInt()),
+                    floatArrayOf(0f, 0.5f, 1f),
+                    android.graphics.Shader.TileMode.CLAMP,
+                )
+            }
+            canvas.drawRoundRect(avatarRect, 22f, 22f, avatarStroke)
+        }
+
+        val brandPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            textSize = 74f
+            typeface = android.graphics.Typeface.create(android.graphics.Typeface.SANS_SERIF, android.graphics.Typeface.BOLD)
+            letterSpacing = -0.02f
+            shader = android.graphics.LinearGradient(
+                leftX + 98f, 160f, leftX + 490f, 230f,
+                intArrayOf(0xFF38BDF8.toInt(), 0xFFA78BFA.toInt(), 0xFF34D399.toInt()),
+                floatArrayOf(0f, 0.55f, 1f),
+                android.graphics.Shader.TileMode.CLAMP,
+            )
+        }
+        canvas.drawText("NekoXray", leftX + 98f, 220f, brandPaint)
+
+        // Headline
+        val headlinePaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            color = 0xFFF8FAFC.toInt()
+            textSize = 40f
+            typeface = android.graphics.Typeface.create(android.graphics.Typeface.SANS_SERIF, android.graphics.Typeface.BOLD)
+            letterSpacing = -0.015f
+        }
+        canvas.drawText("Next-Gen Xray-core Tunnel", leftX, 292f, headlinePaint)
+        canvas.drawText("in Jetpack Compose & Material 3", leftX, 342f, headlinePaint)
+
+        // Subtitle lines
+        val subLinePaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            color = 0xFF94A3B8.toInt()
+            textSize = 20.5f
+            typeface = android.graphics.Typeface.create(android.graphics.Typeface.SANS_SERIF, android.graphics.Typeface.NORMAL)
+        }
+        val descLines = listOf(
+            "Native Android VPN & proxy client supporting VLESS REALITY,",
+            "XHTTP (SplitHTTP), post-quantum ML-KEM-768 + pqv, built-in",
+            "SSH SOCKS5/DNS bridge, smart GeoIP/GeoSite routing,",
+            "and zero-drop Wi-Fi ↔ 5G/LTE network handoff.",
+        )
+        descLines.forEachIndexed { idx, line ->
+            canvas.drawText(line, leftX, 396f + idx * 31f, subLinePaint)
+        }
+
+        // Spec chips grid (matching .spec-chip on website)
+        val chipRows = listOf(
+            listOf("VLESS · REALITY · XHTTP", "ML-KEM-768 + ML-DSA-65 pqv", "SSH + WireGuard + Trojan"),
+            listOf("Seamless Wi-Fi ↔ LTE/5G", "Always-On & Lockdown VPN", "GeoIP / GeoSite + Per-App"),
+            listOf("Widgets 4×2 · 3×1 · 1×1", "Vector QR v40 (2200+ chars)", "EN · RU · ZH · FA · ES"),
+        )
+        val chipTextPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            color = 0xFFE2E8F0.toInt()
+            textSize = 15.5f
+            typeface = android.graphics.Typeface.create(android.graphics.Typeface.MONOSPACE, android.graphics.Typeface.BOLD)
+        }
+        val chipBgPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            color = 0xD80D1422.toInt()
+        }
+        val chipBorderPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            style = android.graphics.Paint.Style.STROKE
+            strokeWidth = 1.2f
+            color = 0x3894A3B8
+        }
+
+        var chipY = 542f
+        for (row in chipRows) {
+            var chipX = leftX
+            for (label in row) {
+                val textW = chipTextPaint.measureText(label)
+                val cw = textW + 28f
+                val ch = 38f
+                val cRect = android.graphics.RectF(chipX, chipY, chipX + cw, chipY + ch)
+                canvas.drawRoundRect(cRect, 10f, 10f, chipBgPaint)
+                canvas.drawRoundRect(cRect, 10f, 10f, chipBorderPaint)
+                canvas.drawText(label, chipX + 14f, chipY + 24.5f, chipTextPaint)
+                chipX += cw + 10f
+            }
+            chipY += 48f
+        }
+
+        val outDir = File(rootDir, "docs/images").apply { mkdirs() }
+        val outFile = File(outDir, "banner.jpg")
+        outFile.outputStream().use { stream ->
+            assertTrue(bmp.compress(Bitmap.CompressFormat.JPEG, 95, stream))
+        }
+        assertTrue(outFile.exists() && outFile.length() > 40_000L)
+    }
 }
