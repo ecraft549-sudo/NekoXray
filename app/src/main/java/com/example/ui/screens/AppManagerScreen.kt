@@ -647,6 +647,14 @@ private fun resolveSinglePackage(pm: PackageManager, pkg: String): InstalledAppI
         InstalledAppItem(packageName = pkg, label = pkg, isSystem = false, icon = null)
     }
 
+private val ESSENTIAL_SYSTEM_PACKAGES = listOf(
+    "com.android.vending",
+    "com.google.android.gms",
+    "com.google.android.gsf",
+    "com.android.providers.downloads",
+    "com.android.providers.downloads.ui",
+)
+
 private fun loadLaunchableApps(pm: PackageManager, selfPackage: String): List<InstalledAppItem> {
     val launcherIntent = Intent(Intent.ACTION_MAIN, null).apply {
         addCategory(Intent.CATEGORY_LAUNCHER)
@@ -673,6 +681,29 @@ private fun loadLaunchableApps(pm: PackageManager, selfPackage: String): List<In
             isSystem = isSys,
             icon = iconBmp,
         )
+    }
+
+    // Also include essential non-launcher system packages (e.g., DownloadManager, Play Services) if installed
+    for (sysPkg in ESSENTIAL_SYSTEM_PACKAGES) {
+        if (sysPkg == selfPackage || sysPkg in seen) continue
+        runCatching {
+            val appInfo = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                pm.getApplicationInfo(sysPkg, PackageManager.ApplicationInfoFlags.of(0L))
+            } else {
+                @Suppress("DEPRECATION")
+                pm.getApplicationInfo(sysPkg, 0)
+            }
+            seen.add(sysPkg)
+            val isSys = (appInfo.flags and ApplicationInfo.FLAG_SYSTEM) != 0
+            val label = runCatching { pm.getApplicationLabel(appInfo).toString() }.getOrDefault(sysPkg)
+            val iconBmp = runCatching { drawableToImageBitmap(pm.getApplicationIcon(appInfo)) }.getOrNull()
+            result += InstalledAppItem(
+                packageName = sysPkg,
+                label = label,
+                isSystem = isSys,
+                icon = iconBmp,
+            )
+        }
     }
     return result
 }

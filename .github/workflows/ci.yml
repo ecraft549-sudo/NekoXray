@@ -52,4 +52,6 @@ jobs:
         run: gradle :app:testDebugUnitTest --no-daemon
 
       - name: Build multi-architecture debug APKs
-        run: gradle assembleDebug -PenableAbiSplits=true --no-daemon
+        run: |
+          VER_CODE=$((1000 + ${{ github.run_number }}))
+          gradle assembleDebug -PenableAbiSplits=true -PversionCode="${VER_CODE}" --no-daemon

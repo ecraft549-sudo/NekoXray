@@ -1429,4 +1429,29 @@ class XrayRealityTest {
         assertEquals(1, ipServers.length())
         assertEquals("https://1.1.1.1/dns-query", ipServers.getString(0))
     }
+
+    @Test
+    fun `per-app proxy automatically groups download manager and play services with google play store so app updates work`() {
+        // 1. PROXY_SELECTED with Google Play Store includes DownloadManager and Google Play Services
+        val playSelected = com.example.core.vpn.XrayVpnService.expandPerAppCompanionPackages(
+            packages = setOf("com.android.vending", "org.telegram.messenger"),
+            mode = com.example.core.model.PerAppProxyMode.PROXY_SELECTED,
+            selfPackage = "com.aistudio.nekoxray.lwkpmr",
+        )
+        assertTrue("Expected Play Store", "com.android.vending" in playSelected)
+        assertTrue("Expected DownloadManager for Play Store APK updates", "com.android.providers.downloads" in playSelected)
+        assertTrue("Expected DownloadManager UI", "com.android.providers.downloads.ui" in playSelected)
+        assertTrue("Expected Google Play Services", "com.google.android.gms" in playSelected)
+        assertTrue("Expected Google Services Framework", "com.google.android.gsf" in playSelected)
+
+        // 2. BYPASS_SELECTED with Google Play Store also bypasses DownloadManager so CDN tokens match direct IP
+        val playBypassed = com.example.core.vpn.XrayVpnService.expandPerAppCompanionPackages(
+            packages = setOf("com.android.vending"),
+            mode = com.example.core.model.PerAppProxyMode.BYPASS_SELECTED,
+            selfPackage = "com.aistudio.nekoxray.lwkpmr",
+        )
+        assertTrue("Expected Play Store", "com.android.vending" in playBypassed)
+        assertTrue("Expected DownloadManager bypassed alongside Play Store", "com.android.providers.downloads" in playBypassed)
+        assertTrue("GMS should not be forcibly bypassed when Play Store is bypassed", "com.google.android.gms" !in playBypassed)
+    }
 }

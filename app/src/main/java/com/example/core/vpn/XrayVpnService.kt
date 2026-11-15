@@ -256,6 +256,49 @@ class XrayVpnService : VpnService() {
                 if (foundAny) totalUp to totalDown else null
             }.getOrNull()
         }
+
+        private const val GOOGLE_PLAY_STORE_PKG = "com.android.vending"
+
+        private val DOWNLOAD_MANAGER_COMPANIONS = setOf(
+            "com.android.providers.downloads",
+            "com.android.providers.downloads.ui",
+        )
+
+        private val PLAY_SERVICES_COMPANIONS = setOf(
+            "com.google.android.gms",
+            "com.google.android.gsf",
+        )
+
+        /**
+         * Ensures that when Google Play Store (`com.android.vending`) is included in Per-App Proxy
+         * (`PROXY_SELECTED` or `BYPASS_SELECTED`), Android's system `DownloadManager`
+         * (`com.android.providers.downloads`) and Play Services (`com.google.android.gms`) are routed on the same
+         * side of the tunnel so app updates never stall due to split-UID token/IP mismatches.
+         */
+        fun expandPerAppCompanionPackages(
+            packages: Set<String>,
+            mode: PerAppProxyMode,
+            selfPackage: String = "",
+        ): Set<String> {
+            if (mode == PerAppProxyMode.ALL || packages.isEmpty()) return packages
+            val expanded = LinkedHashSet<String>(packages.size + 6)
+            packages.forEach { pkg ->
+                val trimmed = pkg.trim()
+                if (trimmed.isNotEmpty() && trimmed != selfPackage) {
+                    expanded.add(trimmed)
+                }
+            }
+            if (GOOGLE_PLAY_STORE_PKG in expanded) {
+                expanded.addAll(DOWNLOAD_MANAGER_COMPANIONS)
+                if (mode == PerAppProxyMode.PROXY_SELECTED) {
+                    expanded.addAll(PLAY_SERVICES_COMPANIONS)
+                }
+            }
+            if (selfPackage.isNotEmpty()) {
+                expanded.remove(selfPackage)
+            }
+            return expanded
+        }
     }
 
     private data class ActiveTunnelSpec(
@@ -427,12 +470,64 @@ class XrayVpnService : VpnService() {
         }
     }
 
+    @Volatile
+    private var packageReceiverRegistered = false
+
+    private val packageUpdateReceiver = object : android.content.BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            val action = intent?.action ?: return
+            if (action != Intent.ACTION_PACKAGE_REPLACED && action != Intent.ACTION_PACKAGE_ADDED) return
+            val updatedPkg = intent.data?.schemeSpecificPart?.trim().orEmpty()
+            if (updatedPkg.isEmpty() || updatedPkg == packageName) return
+            val spec = activeTunnelSpec ?: return
+            if (spec.perAppMode == PerAppProxyMode.ALL) return
+            val effective = expandPerAppCompanionPackages(spec.perAppPackages, spec.perAppMode, packageName)
+            if (updatedPkg in effective && XrayEngineState.state.value.status == TunnelStatus.CONNECTED) {
+                XrayEngineState.appendLog(
+                    "INFO",
+                    "Installed package '$updatedPkg' updated; refreshing Per-App VPN routing rules.",
+                )
+                val snap = buildSnapshotFor(currentPrimaryNetwork) ?: lastHandedOffSnapshot
+                if (snap != null) {
+                    scheduleSeamlessNetworkHandoff(
+                        targetSnapshot = snap,
+                        debounceMs = 350L,
+                    )
+                }
+            }
+        }
+    }
+
     override fun onCreate() {
         super.onCreate()
         activeServiceInstance = this
         ensureNotificationChannel()
         notificationLargeIcon = buildCircularLargeIcon()
         registerUnderlyingNetworkMonitor()
+        registerPackageUpdateReceiver()
+    }
+
+    private fun registerPackageUpdateReceiver() {
+        if (packageReceiverRegistered) return
+        runCatching {
+            val filter = android.content.IntentFilter().apply {
+                addAction(Intent.ACTION_PACKAGE_REPLACED)
+                addAction(Intent.ACTION_PACKAGE_ADDED)
+                addDataScheme("package")
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                registerReceiver(packageUpdateReceiver, filter, Context.RECEIVER_EXPORTED)
+            } else {
+                registerReceiver(packageUpdateReceiver, filter)
+            }
+            packageReceiverRegistered = true
+        }
+    }
+
+    private fun unregisterPackageUpdateReceiver() {
+        if (!packageReceiverRegistered) return
+        runCatching { unregisterReceiver(packageUpdateReceiver) }
+        packageReceiverRegistered = false
     }
 
     private fun registerUnderlyingNetworkMonitor() {
@@ -1032,28 +1127,46 @@ class XrayVpnService : VpnService() {
             )
         }
 
+        val effectivePerAppPackages = expandPerAppCompanionPackages(
+            packages = spec.perAppPackages,
+            mode = spec.perAppMode,
+            selfPackage = packageName,
+        )
+
         when (spec.perAppMode) {
             PerAppProxyMode.ALL -> {
                 runCatching { builder.addDisallowedApplication(packageName) }
             }
             PerAppProxyMode.BYPASS_SELECTED -> {
                 runCatching { builder.addDisallowedApplication(packageName) }
-                spec.perAppPackages.forEach { pkg ->
+                var appliedCount = 0
+                effectivePerAppPackages.forEach { pkg ->
                     if (pkg != packageName) {
-                        runCatching { builder.addDisallowedApplication(pkg) }
+                        if (runCatching { builder.addDisallowedApplication(pkg) }.isSuccess) {
+                            appliedCount++
+                        }
                     }
                 }
-                XrayEngineState.appendLog("INFO", "Per-App VPN: bypassing ${spec.perAppPackages.size} app(s).")
+                XrayEngineState.appendLog(
+                    "INFO",
+                    "Per-App VPN: bypassing $appliedCount package(s) (selected=${spec.perAppPackages.size}, with store/download companions=${effectivePerAppPackages.size}).",
+                )
             }
             PerAppProxyMode.PROXY_SELECTED -> {
-                val targets = spec.perAppPackages.filter { it != packageName }
+                val targets = effectivePerAppPackages.filter { it != packageName }
                 if (targets.isEmpty()) {
                     runCatching { builder.addDisallowedApplication(packageName) }
                 } else {
+                    var appliedCount = 0
                     targets.forEach { pkg ->
-                        runCatching { builder.addAllowedApplication(pkg) }
+                        if (runCatching { builder.addAllowedApplication(pkg) }.isSuccess) {
+                            appliedCount++
+                        }
                     }
-                    XrayEngineState.appendLog("INFO", "Per-App VPN: routing ${targets.size} selected app(s).")
+                    XrayEngineState.appendLog(
+                        "INFO",
+                        "Per-App VPN: routing $appliedCount package(s) (selected=${spec.perAppPackages.size}, with store/download companions=${targets.size}).",
+                    )
                 }
             }
         }
@@ -1641,6 +1754,7 @@ class XrayVpnService : VpnService() {
         networkHandoffJob?.cancel()
         forceReleaseNativeResources()
         unregisterUnderlyingNetworkMonitor()
+        unregisterPackageUpdateReceiver()
         if (XrayEngineState.state.value.status != TunnelStatus.ERROR) {
             XrayEngineState.updateStatus(status = TunnelStatus.IDLE)
         }
