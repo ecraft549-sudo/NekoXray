@@ -1,4 +1,21 @@
-MIT License
+SPDX-License-Identifier: MIT OR LGPL-3.0-or-later
+
+NekoXray is dual-licensed under the MIT License OR the GNU Lesser General Public
+License v3.0 or later (LGPL-3.0-or-later). You may choose either license for
+your use of the NekoXray source code in this repository.
+
+Note for binary APK / AAB distributions:
+Compiled builds bundle AndroidLibXrayLite (app/libs/libv2ray.aar), which is
+licensed under LGPL-3.0 (see COPYING.LESSER and COPYING) and incorporates
+Xray-core (MPL-2.0). Accordingly, complete binary distributions must also
+comply with the terms of LGPL-3.0 (including preserving copyright/license
+notices and keeping the application source and build configuration available
+for relinking with modified versions of libv2ray.aar). See
+THIRD-PARTY-LICENSES.md for full attribution and dependency details.
+
+================================================================================
+OPTION 1: MIT License
+================================================================================
 
 Copyright (c) 2026 NekoXray Contributors
 
@@ -19,3 +36,20 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+================================================================================
+OPTION 2: GNU Lesser General Public License v3.0 or later (LGPL-3.0-or-later)
+================================================================================
+
+This program is free software: you can redistribute it and/or modify it under
+the terms of the GNU Lesser General Public License as published by the Free
+Software Foundation, either version 3 of the License, or (at your option) any
+later version.
+
+This program is distributed in the hope that it will be useful, but WITHOUT ANY
+WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+A PARTICULAR PURPOSE. See the GNU Lesser General Public License for more details.
+
+The full text of the GNU Lesser General Public License v3.0 is included in
+COPYING.LESSER, and the GNU General Public License v3.0 (incorporated by
+reference in LGPL-3.0) is included in COPYING.

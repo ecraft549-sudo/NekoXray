@@ -27,7 +27,7 @@ import kotlinx.serialization.json.putJsonArray
 import kotlinx.serialization.json.putJsonObject
 
 /**
- * Generates Xray-core v26.10.31 JSON configuration (migrated from NekoBox sing-box ConfigBuilder).
+ * Generates Xray-core v26.10.31 JSON configuration from ProxyProfile models.
  * Includes full REALITY, XTLS-RPRX-Vision, XHTTP (SplitHTTP), TLS Fragment, DNS, and Routing.
  */
 object XrayConfigBuilder {

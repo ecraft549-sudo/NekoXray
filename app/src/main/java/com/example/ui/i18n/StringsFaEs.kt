@@ -141,7 +141,7 @@ val PersianStrings = AppStrings(
     intervalLabel = "فاصله (ms)",
     allowInsecureGlobalTitle = "اجازه TLS ناامن (سراسری)",
     allowInsecureGlobalSubtitle = "غیرفعال کردن بررسی گواهی TLS (بر REALITY تأثیری ندارد)",
-    aboutDesc = "منتقل‌شده از NekoBoxForAndroid به Xray-core با پشتیبانی بومی از VLESS، REALITY، XTLS-Vision، XHTTP و SSH.",
+    aboutDesc = "کلاینت اندروید Xray-core با پشتیبانی بومی از VLESS، REALITY، XTLS-Vision، XHTTP، SSH و سازگاری با فرمت‌های NekoBox.",
 
     newProfileTitle = "پروفایل جدید Xray",
     editProfileTitle = "ویرایش پروفایل",
@@ -351,7 +351,7 @@ val SpanishStrings = AppStrings(
     intervalLabel = "Intervalo (ms)",
     allowInsecureGlobalTitle = "Permitir TLS inseguro global",
     allowInsecureGlobalSubtitle = "Desactivar verificación de certificados TLS (no afecta a REALITY)",
-    aboutDesc = "Migrado de NekoBoxForAndroid a Xray-core con soporte nativo para VLESS, REALITY, XTLS-Vision, XHTTP y SSH.",
+    aboutDesc = "Cliente Android para Xray-core con soporte nativo para VLESS, REALITY, XTLS-Vision, XHTTP, SSH y compatibilidad con formatos de NekoBox.",
 
     newProfileTitle = "Nuevo perfil Xray",
     editProfileTitle = "Editar perfil",

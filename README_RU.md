@@ -12,7 +12,7 @@
 ![Kotlin](https://img.shields.io/badge/Kotlin-2.2-7F52FF?style=flat-square&logo=kotlin&logoColor=white)
 ![Jetpack Compose](https://img.shields.io/badge/Jetpack%20Compose-Material%203-4285F4?style=flat-square&logo=jetpackcompose&logoColor=white)
 ![Xray-core](https://img.shields.io/badge/Xray--core-v26.10.31-38BDF8?style=flat-square)
-[![License: MIT](https://img.shields.io/badge/License-MIT-34D399?style=flat-square)](LICENSE)
+[![License: MIT OR LGPL-3.0-or-later](https://img.shields.io/badge/License-MIT%20OR%20LGPL--3.0--or--later-34D399?style=flat-square)](LICENSE)
 
 </div>
 
@@ -121,4 +121,6 @@ gradle :app:testDebugUnitTest
 
 ## Лицензия
 
-Проект распространяется под лицензией [MIT License](LICENSE).
+Исходный код **NekoXray** распространяется по двойной лицензии **`MIT OR LGPL-3.0-or-later`** (см. [`LICENSE`](LICENSE)).
+
+Собранные APK/AAB включают библиотеку **`AndroidLibXrayLite`** (`libv2ray.aar` под лицензией **LGPL-3.0**, содержащую **Xray-core** под **MPL-2.0**). Для соблюдения условий **LGPL-3.0 (раздел 4)** в репозиторий включены тексты [`COPYING.LESSER`](COPYING.LESSER) и [`COPYING`](COPYING), ссылка на исходный код [2dust/AndroidLibXrayLite](https://github.com/2dust/AndroidLibXrayLite), а также полные исходники и Gradle-скрипты сборки для пересборки приложения с модифицированной версией `libv2ray.aar`. Подробности по всем зависимостям см. в [`THIRD-PARTY-LICENSES.md`](THIRD-PARTY-LICENSES.md) (проект реализован с нуля и поддерживает форматы URI/списков NekoBox без заимствования GPL-кода).

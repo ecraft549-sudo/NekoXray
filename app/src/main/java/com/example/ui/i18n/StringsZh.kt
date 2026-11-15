@@ -141,7 +141,7 @@ val SimplifiedChineseStrings = AppStrings(
     intervalLabel = "分片间隔 (ms)",
     allowInsecureGlobalTitle = "全局允许不安全 TLS",
     allowInsecureGlobalSubtitle = "禁用 TLS 节点证书校验（不影响 REALITY）",
-    aboutDesc = "从 NekoBoxForAndroid 迁移至 Xray-core，原生支持 VLESS + REALITY + XTLS-Vision + XHTTP 与 SSH。",
+    aboutDesc = "基于 Xray-core 的 Android 客户端，原生支持 VLESS、REALITY、XTLS-Vision、XHTTP 与 SSH，兼容 NekoBox 格式。",
 
     newProfileTitle = "新建 Xray 配置",
     editProfileTitle = "编辑配置",
@@ -351,7 +351,7 @@ val TraditionalChineseStrings = AppStrings(
     intervalLabel = "間隔 (ms)",
     allowInsecureGlobalTitle = "全域允許不安全 TLS",
     allowInsecureGlobalSubtitle = "停用 TLS 節點憑證驗證（不影響 REALITY）",
-    aboutDesc = "自 NekoBoxForAndroid 遷移至 Xray-core，原生支援 VLESS + REALITY + XTLS-Vision + XHTTP 與 SSH。",
+    aboutDesc = "基於 Xray-core 的 Android 用戶端，原生支援 VLESS、REALITY、XTLS-Vision、XHTTP 與 SSH，相容 NekoBox 格式。",
 
     newProfileTitle = "新增 Xray 設定檔",
     editProfileTitle = "編輯設定檔",

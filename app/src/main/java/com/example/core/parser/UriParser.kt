@@ -18,8 +18,8 @@ data class ParsedSubscription(
 )
 
 /**
- * Ported and upgraded from NekoBoxForAndroid (V2RayFmt, TrojanFmt, ShadowsocksFmt, WireGuardFmt)
- * for Xray-core v26.10.31 with first-class REALITY & XHTTP (SplitHTTP) URI support.
+ * Clean-room Kotlin URI parser and exporter compatible with V2Ray, NekoBox, Clash, and Xray
+ * share links for Xray-core v26.10.31 with REALITY & XHTTP (SplitHTTP) URI support.
  */
 object UriParser {
 

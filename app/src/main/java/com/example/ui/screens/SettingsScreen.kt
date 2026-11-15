@@ -413,11 +413,16 @@ fun SettingsScreen(
                             .clip(CircleShape),
                     )
                     Spacer(Modifier.width(14.dp))
-                    Column {
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text("NekoXray · Xray-core $XRAY_CORE_VERSION", style = MaterialTheme.typography.titleMedium)
                         Text(
                             text = strings.aboutDesc,
                             style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Text(
+                            text = "License: MIT OR LGPL-3.0-or-later · AndroidLibXrayLite (LGPL-3.0) · Xray-core (MPL-2.0)",
+                            style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }

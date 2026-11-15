@@ -143,7 +143,7 @@
     els.footerReleasesLink.href = repo ? `${base}/releases` : base;
     els.footerIssuesLink.href = repo ? `${base}/issues` : base;
     if (els.footerLicenseLink) {
-      els.footerLicenseLink.href = repo ? `${base}/blob/main/LICENSE` : 'https://opensource.org/licenses/MIT';
+      els.footerLicenseLink.href = repo ? `${base}/blob/main/LICENSE` : 'https://www.gnu.org/licenses/lgpl-3.0.html';
     }
     els.fallbackGithubReleasesLink.href = repo ? `${base}/releases` : base;
   }

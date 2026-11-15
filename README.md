@@ -12,7 +12,7 @@
 ![Kotlin](https://img.shields.io/badge/Kotlin-2.2-7F52FF?style=flat-square&logo=kotlin&logoColor=white)
 ![Jetpack Compose](https://img.shields.io/badge/Jetpack%20Compose-Material%203-4285F4?style=flat-square&logo=jetpackcompose&logoColor=white)
 ![Xray-core](https://img.shields.io/badge/Xray--core-v26.10.31-38BDF8?style=flat-square)
-[![License: MIT](https://img.shields.io/badge/License-MIT-34D399?style=flat-square)](LICENSE)
+[![License: MIT OR LGPL-3.0-or-later](https://img.shields.io/badge/License-MIT%20OR%20LGPL--3.0--or--later-34D399?style=flat-square)](LICENSE)
 
 </div>
 
@@ -123,4 +123,6 @@ To publish it on GitHub Pages: open **Settings → Pages → Build and deploymen
 
 ## License
 
-This project is licensed under the [MIT License](LICENSE).
+NekoXray source code is dual-licensed under **MIT OR LGPL-3.0-or-later** (see [`LICENSE`](LICENSE)).
+
+Prebuilt APK/AAB releases link **`AndroidLibXrayLite`** (`libv2ray.aar`, licensed under **LGPL-3.0**, bundling **Xray-core** under **MPL-2.0**). In accordance with **LGPL-3.0 Section 4**, copies of the license texts are provided in [`COPYING.LESSER`](COPYING.LESSER) and [`COPYING`](COPYING), upstream `AndroidLibXrayLite` sources are available at [2dust/AndroidLibXrayLite](https://github.com/2dust/AndroidLibXrayLite), and full Gradle build scripts are included so users can swap `app/libs/libv2ray.aar` and rebuild the app from source. See [`THIRD-PARTY-LICENSES.md`](THIRD-PARTY-LICENSES.md) for all component notices (NekoXray implements clean-room compatibility with NekoBox URI/list formats and contains no GPL-3.0 source code).

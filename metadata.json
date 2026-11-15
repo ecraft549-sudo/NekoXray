@@ -1,6 +1,6 @@
 {
   "name": "NekoXray",
-  "description": "Xray-core v26.10.31 & REALITY proxy client migrated from NekoBoxForAndroid with VLESS/VMess/Trojan/SS/WG profiles, X25519 REALITY keygen, routing rules, subscriptions, and Android VpnService.",
+  "description": "Xray-core v26.10.31 & REALITY Android proxy client with VLESS/VMess/Trojan/SS/WG/SSH profiles, X25519 REALITY keygen, routing rules, subscriptions, and NekoBox format compatibility.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }
