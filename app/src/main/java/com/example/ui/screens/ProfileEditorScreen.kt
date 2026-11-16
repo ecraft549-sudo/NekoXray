@@ -99,6 +99,7 @@ fun ProfileEditorScreen(
     var loaded by remember { mutableStateOf(profileId == 0L) }
     var sniCheckResult by remember { mutableStateOf<TlsProbeResult?>(null) }
     var isCheckingSni by remember { mutableStateOf(false) }
+    var isLeavingScreen by remember { mutableStateOf(false) }
 
     LaunchedEffect(profileId) {
         if (profileId > 0L) {
@@ -114,19 +115,39 @@ fun ProfileEditorScreen(
             TopAppBar(
                 title = { Text(if (profileId == 0L) strings.newProfileTitle else strings.editProfileTitle) },
                 navigationIcon = {
-                    IconButton(onClick = onBack, modifier = Modifier.testTag("editor_back_button")) {
+                    IconButton(
+                        onClick = {
+                            if (!isLeavingScreen) {
+                                isLeavingScreen = true
+                                onBack()
+                            }
+                        },
+                        enabled = !isLeavingScreen,
+                        modifier = Modifier.testTag("editor_back_button"),
+                    ) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = strings.back)
                     }
                 },
                 actions = {
                     IconButton(
-                        onClick = { onPreviewConfig(profile) },
+                        onClick = {
+                            if (!isLeavingScreen) {
+                                onPreviewConfig(profile)
+                            }
+                        },
+                        enabled = !isLeavingScreen,
                         modifier = Modifier.testTag("editor_preview_json_button"),
                     ) {
                         Icon(Icons.Default.Code, contentDescription = strings.previewXrayJson)
                     }
                     IconButton(
-                        onClick = { onSave(profile) },
+                        onClick = {
+                            if (!isLeavingScreen) {
+                                isLeavingScreen = true
+                                onSave(profile)
+                            }
+                        },
+                        enabled = !isLeavingScreen,
                         modifier = Modifier.testTag("editor_save_button"),
                     ) {
                         Icon(Icons.Default.Check, contentDescription = strings.save)
@@ -674,7 +695,13 @@ fun ProfileEditorScreen(
             }
 
             Button(
-                onClick = { onSave(profile) },
+                onClick = {
+                    if (!isLeavingScreen) {
+                        isLeavingScreen = true
+                        onSave(profile)
+                    }
+                },
+                enabled = !isLeavingScreen,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(50.dp)

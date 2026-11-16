@@ -427,8 +427,8 @@ class ScreenshotGeneratorTest {
                     modifier = mod,
                 )
                 QrCodeDialog(
-                    title = "Czech XHTTP · ML-KEM-768",
-                    uri = "vless://32622b0f-1a68-4e38-a7f7-a557edc26979@cz-prg.example.net:443?encryption=mlkem768x25519plus.native.0rtt&security=reality&sni=www.nvidia.com&fp=chrome&pbk=${enState.generatedRealityKeys.publicKey}&sid=${enState.generatedRealityKeys.shortId}&type=xhttp&mode=auto#Czech%20XHTTP",
+                    title = "Frankfurt XHTTP · ML-KEM-768",
+                    uri = "vless://00000000-0000-4000-8000-000000000001@de-fra.example.net:443?encryption=mlkem768x25519plus.native.0rtt&security=reality&sni=www.microsoft.com&fp=chrome&pbk=${enState.generatedRealityKeys.publicKey}&sid=${enState.generatedRealityKeys.shortId}&type=xhttp&mode=auto#Frankfurt%20XHTTP",
                     onDismiss = {},
                     onCopied = {},
                 )

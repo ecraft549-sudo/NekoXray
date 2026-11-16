@@ -125,30 +125,32 @@ class XrayRealityTest {
     }
 
     @Test
-    fun `user vless reality xhttp pqv mlkem768 uri parses validates and probes`() {
-        val userUri = "vless://32622b0f-1a68-4e38-a7f7-a557edc26979@78.108.57.38:443" +
-            "?encryption=mlkem768x25519plus.native.0rtt.nuUKibP8C39lqkEjC5EmHQyp7BnndLVuCwdeD5mF31g" +
-            "&security=reality&sni=www.nvidia.com&fp=chrome" +
-            "&pbk=t4Xs-5ksSsv71Pvg-FeYxeAE2ZL7ggkXiuNfhSPMdCk&sid=6e9acac04d&spx=%2F" +
-            "&pqv=QV8gw4CUYv3tY2gqXgalRkFv5sSV3usyEoEfnI3zSad-ynVfHvn9x8cF7WaUAndRrB-l1bft__AibNwMJ60Y_CmPtqBLZskaFcr1BB1llGahGhNsTXp50BVQUp8u0zf_rzyRAl7d5W31AoXjvIvyFWkO8TUVRDPgfGpFb86-id86zbL9YMDwToWDPAPVOcAvmU6lMtZavwrJV5HDMXwaWbbPLwJEiZqsDuL9AbxnWUWr90hB1pmkKGck1dorIvm7hu24J89SNvTWFU0duZeugKcTEDmX-Qmm8GWB4EeE7YSzAigcgeAbkQwE9E2TRwSmLKzveyUXxvbotVwjNSNQeC5oKzRpWMBe5upmSFehf4Sc4__qLg5Oi7EldHA0F_ulzHSs8xEpIFeuwZCq1IENJpspEVO8sgI6uXCXImVZBiSoKQ-nHomlovwHZYMx_TviJwvCgxkqrkVdrS25LOxpWFQwKQpGFbUSw7hzCoCs2yP-7xXufOlQLC2F9itM0FN37Nvsqwac9JvYvt6OlcHRlf7GMTad_nrtiD9Gr_Rn7BjdwsLIpv84l7D-8Z6yEXJNXxu1Rl0XQZ9wiEOeesXqeZEydVnCBNPZ87HGzI_fnvF5Vk6hZDmQcdvmO1ZMMYGJ5Sj1CGl_MI_vpN4JJnuao8gsnFsR_t3nC-iftDeqsglqZN-W_oMIXE1GYMJXMm5rksmk37BWPgWz2hejWTt-7mLwyWKhO9rAnN_W2iXcoGXKITudIAGgKWmPL9m3lGoqij4pflQ2AJevWCev5laM1Ni1F0wx0iCLRl9AgkDGVVXWmCSS-DfNf1vIzc50ucdh50IIlKk1a5vANeEx6LjbJIeOZDdeIIx0a_FLyWaOTjVEotP9zNUSoa5rNczyR8-RusnXnrfLBz14SREAqi04WzQTdnMbS6V0wQny7HNUHwWhQifOyEYgo8RJfGkWZ4LKs_0XkLI_FpdLETOzWUovRldj8M2i7KBrJecpTo9TO_XxECCwNQh92rbogqrlmyzOEgOfvjoJ_GqzmKdNv_rTxFnEeDeSxLfKs90mRyLm78I99VEZONLg4B5Fi2aVueGc4zoxJc8dh2zqHeJZ3RuNNG6hWrjCm2opg-TodC4jBX3WCnwUaHvKBIVDS5Jm4N05-PYS7qp2LF0yIed3vKfHmxVWQn_UnAz1AHdEdRfic0BKYluWJSd57AduL1P17UnVd1VgLnczE1f4j513MVA_iqReAUQ77xg6A6IumGVJ0-iVgtUZ2EqXeLBKpUv5yepmquYhl88v-_Bge5nJ7pEBz6UCYb3YpdjAYo674rJo_kAuoibTH3IVFqAh20DoDTu2Vr--nNasSEt76NOK6P5gYM3RVSme-FUdyLHo16qVR1l0LTgtfOh1Y8OyzVZe5fKpogiiFBVuwJjZfGlrpUIVkf4jWPEQEVrJ3SNDBjE1h7q_L7UqEmBi53kE0WTd_ltHVnd-X1-bGADka4UTxL0i3EbpuMjgp4q8u1UoRfuVobJSfCO9Jx9RN_1Ax6JGT0RDuF6mZ2IgbRnXBz1lAbE0d0L7Dr0XJRggu9rP1BQmXANcrV50ezXI7tHcnJPfInTHebQZaF2Wm5mPrPqVVqYHccMszrD_LBrHiYFul56K56LGTWRMnwmSTht8WxMxNqSpUYrOL1-fz94vYFJGIMEsSGc-UTMSu1sH1Q0hV00BFYQGrmQFsT6mVpa1ca96YERyhxdze-jMcmbL_bYGLXQOoyaFuyK3cLgzpOz3RL7Qoqcr4gB-mi820okPp1J-Hnh63wdVRX2w91p_qtKqopKE29IailnXQhN_pqmMVG1DKKt0vpmbunwHdGzDWsK_22M4T-HEb5rYO7CPL-yAk4gI6ZjBOtEN-QNbouofD-o7QKOGPA3E3WgnvoNBzOfX4OPZZkePQsi72e2EbinKI-4hF73vvlX8DbfZU44yb9N064P0Nb5XFKMHl09Q61RPehf3m0vMBSPlrBRUhg5Md-3v8yI03opM7itL0SRX-Yn6jIevgiKENAGaKnx3L5Z1NUsk86PsQ7XFVNXxQYabafBWcDQ2ReuIf5rib1P1W9zjq8X3aERPl7PTToye0XltsMOftgaUZkqoe-PCEUin-svlkn5afpw_PZzhrjCaw0PwX2QCsY1_LsQX__mivgqmyd2zZ7LnjpFAKrgSF0f3jS_KJFaK9ceHt_v-QYE2Zm9HcB3HhJQwBAj09cl5XmEN-4pT3Rb-ScA4TPLQtV-EkkfGfAYKNIkRiILGt-QNVajH3FuIhqUgS_iwaXWNnPJ4bz6ag-IZ7aBjxQIZ0BSNgveQu-VaGHiOmwWdL93NnPhwPa8mBHD9SCuyv4jg1_1CvA_NfuOQdwX6lH2vRY1TVCJDZtxZ3WjPmlLcELTUHF3iXv2J2QPfZbdIStx-MtvH4J7Kc05DhHVn6yAa8GkD4Pcj4_GAPF8fUr7f3_qd-TDmmAUJKhSdNhaa4D-j4gundkIGHcaMIE6SkNNx2Ve4CnndgcMw86voOqyyl-Q_ALS9eZ-qDwerTMOMwN-TEalb1gMp8fMbjMV_DCLPeGrA2tyuIqwkeOHhlS_poL954U9O2Ds" +
+    fun `vless reality xhttp pqv mlkem768 uri parses validates and probes`() {
+        val keys = RealityKeyGenerator.generateBundle()
+        val syntheticPqv = "M".repeat(1950)
+        val testUri = "vless://${keys.uuid}@198.51.100.42:443" +
+            "?encryption=mlkem768x25519plus.native.0rtt.${keys.publicKey}" +
+            "&security=reality&sni=www.microsoft.com&fp=chrome" +
+            "&pbk=${keys.publicKey}&sid=${keys.shortId}&spx=%2F" +
+            "&pqv=$syntheticPqv" +
             "&type=xhttp&path=%2F&mode=auto" +
             "&extra=%7B%22xPaddingBytes%22%3A%22100-1000%22%2C%22mode%22%3A%22auto%22%2C%22scMaxEachPostBytes%22%3A%221000000%22%7D" +
-            "#Czech%F0%9F%87%A8%F0%9F%87%BF-%20Volta%20frends"
+            "#TestNode-XHTTP"
 
-        val profile = UriParser.parseSingle(userUri)
+        val profile = UriParser.parseSingle(testUri)
         assertNotNull(profile)
         profile!!
         assertEquals(ProxyProtocol.VLESS, profile.protocol)
-        assertEquals("78.108.57.38", profile.serverAddress)
+        assertEquals("198.51.100.42", profile.serverAddress)
         assertEquals(443, profile.serverPort)
-        assertEquals("32622b0f-1a68-4e38-a7f7-a557edc26979", profile.uuid)
+        assertEquals(keys.uuid, profile.uuid)
         assertEquals(SecurityType.REALITY, profile.security)
         assertEquals(TransportType.XHTTP, profile.transport)
-        assertEquals("www.nvidia.com", profile.sni)
-        assertEquals("t4Xs-5ksSsv71Pvg-FeYxeAE2ZL7ggkXiuNfhSPMdCk", profile.realityPublicKey)
-        assertEquals("6e9acac04d", profile.realityShortId)
+        assertEquals("www.microsoft.com", profile.sni)
+        assertEquals(keys.publicKey, profile.realityPublicKey)
+        assertEquals(keys.shortId, profile.realityShortId)
         assertTrue(profile.encryption.startsWith("mlkem768x25519plus.native.0rtt."))
-        assertTrue(profile.realityMldsa65Verify.startsWith("QV8gw4CU"))
+        assertEquals(syntheticPqv, profile.realityMldsa65Verify)
         assertEquals("auto", profile.xhttpMode)
         assertTrue(profile.xhttpExtra.contains("scMaxEachPostBytes"))
 
@@ -163,7 +165,7 @@ class XrayRealityTest {
         val stream = outbound.getJSONObject("streamSettings")
         assertEquals("xhttp", stream.getString("network"))
         assertEquals("reality", stream.getString("security"))
-        assertTrue(stream.getJSONObject("realitySettings").getString("mldsa65Verify").startsWith("QV8gw4CU"))
+        assertEquals(syntheticPqv, stream.getJSONObject("realitySettings").getString("mldsa65Verify"))
         assertTrue(stream.getJSONObject("xhttpSettings").has("extra"))
 
         val dialer = com.example.core.vpn.KotlinOutboundDialer(profile)
@@ -177,14 +179,15 @@ class XrayRealityTest {
             com.example.core.vpn.XrayEngineState.state.value.isNativeCoreLinked,
         )
 
+        val keys = RealityKeyGenerator.generateBundle()
         val profile = com.example.core.model.ProxyProfile(
             protocol = ProxyProtocol.VLESS,
             serverAddress = "edge.example.com",
             serverPort = 443,
-            uuid = "32622b0f-1a68-4e38-a7f7-a557edc26979",
+            uuid = keys.uuid,
             security = SecurityType.REALITY,
-            sni = "www.nvidia.com",
-            realityPublicKey = "t4Xs-5ksSsv71Pvg-FeYxeAE2ZL7ggkXiuNfhSPMdCk",
+            sni = "www.microsoft.com",
+            realityPublicKey = keys.publicKey,
         )
 
         val vpnJson = JSONObject(
@@ -403,14 +406,15 @@ class XrayRealityTest {
         assertEquals("geosite:category-ru", XrayConfigBuilder.normalizeDomainPattern("geosite:category-ru"))
         assertEquals("yandex", XrayConfigBuilder.normalizeDomainPattern("yandex"))
 
+        val keys = RealityKeyGenerator.generateBundle()
         val profile = com.example.core.model.ProxyProfile(
             protocol = ProxyProtocol.VLESS,
             serverAddress = "vpn.example.com",
             serverPort = 443,
-            uuid = "32622b0f-1a68-4e38-a7f7-a557edc26979",
+            uuid = keys.uuid,
             security = SecurityType.REALITY,
-            sni = "www.nvidia.com",
-            realityPublicKey = "t4Xs-5ksSsv71Pvg-FeYxeAE2ZL7ggkXiuNfhSPMdCk",
+            sni = "www.microsoft.com",
+            realityPublicKey = keys.publicKey,
         )
         val ruRule = com.example.core.model.RoutingRule(
             id = 2L,
@@ -660,11 +664,12 @@ class XrayRealityTest {
 
     @Test
     fun `qr encoder and decoder handle huge 2200+ char mlkem768 pqv vless uri`() {
-        val hugePayload = "vless://32622b0f-1a68-4e38-a7f7-a557edc26979@78.108.57.38:443" +
-            "?encryption=mlkem768x25519plus.native.0rtt.nuUKibP8C39lqkEjC5EmHQyp7BnndLVuCwdeD5mF31g" +
-            "&security=reality&sni=www.nvidia.com&fp=chrome" +
-            "&pbk=t4Xs-5ksSsv71Pvg-FeYxeAE2ZL7ggkXiuNfhSPMdCk&sid=6e9acac04d&spx=%2F" +
-            "&pqv=" + "A".repeat(1900) + "#Czech-Volta"
+        val keys = RealityKeyGenerator.generateBundle()
+        val hugePayload = "vless://${keys.uuid}@198.51.100.42:443" +
+            "?encryption=mlkem768x25519plus.native.0rtt.${keys.publicKey}" +
+            "&security=reality&sni=www.microsoft.com&fp=chrome" +
+            "&pbk=${keys.publicKey}&sid=${keys.shortId}&spx=%2F" +
+            "&pqv=" + "A".repeat(1900) + "#Synthetic-Test-Node"
 
         val encoded = com.example.ui.components.QrMatrixEncoder.encode(hugePayload).getOrThrow()
         assertEquals(com.google.zxing.qrcode.decoder.ErrorCorrectionLevel.L, encoded.errorCorrectionLevel)
@@ -1012,14 +1017,15 @@ class XrayRealityTest {
 
     @Test
     fun `config builder removes geosite and geoip matchers cleanly when dat assets are unavailable`() {
+        val keys = RealityKeyGenerator.generateBundle()
         val profile = com.example.core.model.ProxyProfile(
             protocol = ProxyProtocol.VLESS,
             serverAddress = "vpn.example.com",
             serverPort = 443,
-            uuid = "32622b0f-1a68-4e38-a7f7-a557edc26979",
+            uuid = keys.uuid,
             security = SecurityType.REALITY,
-            sni = "www.nvidia.com",
-            realityPublicKey = "t4Xs-5ksSsv71Pvg-FeYxeAE2ZL7ggkXiuNfhSPMdCk",
+            sni = "www.microsoft.com",
+            realityPublicKey = keys.publicKey,
         )
         val rules = listOf(
             com.example.core.model.RoutingRule(
@@ -1105,7 +1111,7 @@ class XrayRealityTest {
             protocol = ProxyProtocol.VLESS,
             serverAddress = "vpn.example.com",
             serverPort = 443,
-            uuid = "32622b0f-1a68-4e38-a7f7-a557edc26979",
+            uuid = "00000000-0000-4000-8000-000000000001",
         )
         val selfStartIntent = com.example.core.vpn.XrayVpnService.buildStartIntent(
             context = context,
@@ -1352,14 +1358,15 @@ class XrayRealityTest {
             action = com.example.core.model.RouteAction.DIRECT,
             priority = 2,
         )
+        val keys = RealityKeyGenerator.generateBundle()
         val hostnameProfile = com.example.core.model.ProxyProfile(
             protocol = ProxyProtocol.VLESS,
             serverAddress = "vpn.example.com",
             serverPort = 443,
-            uuid = "32622b0f-1a68-4e38-a7f7-a557edc26979",
+            uuid = keys.uuid,
             security = SecurityType.REALITY,
-            sni = "www.nvidia.com",
-            realityPublicKey = "t4Xs-5ksSsv71Pvg-FeYxeAE2ZL7ggkXiuNfhSPMdCk",
+            sni = "www.microsoft.com",
+            realityPublicKey = keys.publicKey,
         )
 
         // 1. Default settings: Direct DNS enabled + DoH protection upgrades 8.8.8.8 -> https+local://8.8.8.8/dns-query
@@ -1453,5 +1460,30 @@ class XrayRealityTest {
         assertTrue("Expected Play Store", "com.android.vending" in playBypassed)
         assertTrue("Expected DownloadManager bypassed alongside Play Store", "com.android.providers.downloads" in playBypassed)
         assertTrue("GMS should not be forcibly bypassed when Play Store is bypassed", "com.google.android.gms" !in playBypassed)
+
+        // 3. Verify safe back-stack pop guard blocks rapid double-tap during exit animation and never pops root screen
+        assertEquals(
+            true,
+            com.example.canPopBackStackSafely(
+                entryLifecycleState = androidx.lifecycle.Lifecycle.State.RESUMED,
+                hasPreviousEntry = true,
+            ),
+        )
+        assertEquals(
+            "Second rapid tap on Back while ProfileEditor is animating out (STARTED) must be ignored",
+            false,
+            com.example.canPopBackStackSafely(
+                entryLifecycleState = androidx.lifecycle.Lifecycle.State.STARTED,
+                hasPreviousEntry = true,
+            ),
+        )
+        assertEquals(
+            "Root destination (hasPreviousEntry = false) must never be popped off NavHost",
+            false,
+            com.example.canPopBackStackSafely(
+                entryLifecycleState = androidx.lifecycle.Lifecycle.State.RESUMED,
+                hasPreviousEntry = false,
+            ),
+        )
     }
 }

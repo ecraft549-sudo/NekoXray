@@ -64,9 +64,12 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import com.example.ui.i18n.LocalAppStrings
 import com.example.ui.i18n.resolveAppStrings
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.navigation.NavBackStackEntry
 import androidx.navigation.NavDestination.Companion.hasRoute
 import androidx.navigation.NavGraph.Companion.findStartDestination
+import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
@@ -326,7 +329,7 @@ private fun NekoXrayRoot(
                             navController = navController,
                             startDestination = NekoRoute.Profiles,
                         ) {
-                            composable<NekoRoute.Profiles> {
+                            composable<NekoRoute.Profiles> { backEntry ->
                                 ProfilesScreen(
                                     state = state,
                                     onSelectProfile = viewModel::selectProfile,
@@ -334,15 +337,22 @@ private fun NekoXrayRoot(
                                     onSearchChange = viewModel::updateSearchQuery,
                                     onImportText = viewModel::importText,
                                     onCreateProfile = { proto ->
-                                        navController.navigate(
-                                            NekoRoute.ProfileEditor(profileId = 0L, initialProtocol = proto.name)
+                                        navController.navigateSubScreenSafely(
+                                            fromEntry = backEntry,
+                                            route = NekoRoute.ProfileEditor(profileId = 0L, initialProtocol = proto.name),
                                         )
                                     },
                                     onEditProfile = { id ->
-                                        navController.navigate(NekoRoute.ProfileEditor(profileId = id))
+                                        navController.navigateSubScreenSafely(
+                                            fromEntry = backEntry,
+                                            route = NekoRoute.ProfileEditor(profileId = id),
+                                        )
                                     },
                                     onPreviewConfig = { id ->
-                                        navController.navigate(NekoRoute.ConfigPreview(profileId = id))
+                                        navController.navigateSubScreenSafely(
+                                            fromEntry = backEntry,
+                                            route = NekoRoute.ConfigPreview(profileId = id),
+                                        )
                                     },
                                     onTestProfile = viewModel::testProfile,
                                     onTestAll = viewModel::testAllVisibleProfiles,
@@ -367,14 +377,17 @@ private fun NekoXrayRoot(
                                 )
                             }
 
-                            composable<NekoRoute.Routing> {
+                            composable<NekoRoute.Routing> { backEntry ->
                                 RoutingScreen(
                                     state = state,
                                     onToggleRule = viewModel::toggleRoutingRule,
                                     onSaveRule = viewModel::saveRoutingRule,
                                     onDeleteRule = viewModel::deleteRoutingRule,
                                     onOpenAppManager = {
-                                        navController.navigate(NekoRoute.AppManager)
+                                        navController.navigateSubScreenSafely(
+                                            fromEntry = backEntry,
+                                            route = NekoRoute.AppManager,
+                                        )
                                     },
                                 )
                             }
@@ -391,12 +404,15 @@ private fun NekoXrayRoot(
                                 )
                             }
 
-                            composable<NekoRoute.Settings> {
+                            composable<NekoRoute.Settings> { backEntry ->
                                 SettingsScreen(
                                     state = state,
                                     onUpdateSettings = viewModel::updateSettings,
                                     onOpenAppManager = {
-                                        navController.navigate(NekoRoute.AppManager)
+                                        navController.navigateSubScreenSafely(
+                                            fromEntry = backEntry,
+                                            route = NekoRoute.AppManager,
+                                        )
                                     },
                                     onNotice = { msg ->
                                         scope.launch { snackbarHostState.showSnackbar(msg) }
@@ -404,12 +420,12 @@ private fun NekoXrayRoot(
                                 )
                             }
 
-                            composable<NekoRoute.AppManager> {
+                            composable<NekoRoute.AppManager> { backEntry ->
                                 AppManagerScreen(
                                     settings = state.settings,
                                     onUpdateSettings = viewModel::updateSettings,
                                     onTogglePackage = viewModel::togglePerAppPackage,
-                                    onBack = { navController.popBackStack() },
+                                    onBack = { navController.popBackStackSafely(backEntry) },
                                     onNotice = { msg ->
                                         scope.launch { snackbarHostState.showSnackbar(msg) }
                                     },
@@ -424,16 +440,23 @@ private fun NekoXrayRoot(
                                     defaultGroupId = state.selectedGroupId,
                                     loadProfile = viewModel::loadProfile,
                                     onSave = { edited ->
-                                        viewModel.saveProfile(edited) {
-                                            navController.popBackStack()
+                                        if (backEntry.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
+                                            viewModel.saveProfile(edited) {
+                                                navController.popBackStackSafely(backEntry)
+                                            }
                                         }
                                     },
                                     onPreviewConfig = { edited ->
-                                        viewModel.saveProfile(edited) { savedId ->
-                                            navController.navigate(NekoRoute.ConfigPreview(savedId))
+                                        if (backEntry.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
+                                            viewModel.saveProfile(edited) { savedId ->
+                                                navController.navigateSubScreenSafely(
+                                                    fromEntry = backEntry,
+                                                    route = NekoRoute.ConfigPreview(savedId),
+                                                )
+                                            }
                                         }
                                     },
-                                    onBack = { navController.popBackStack() },
+                                    onBack = { navController.popBackStackSafely(backEntry) },
                                 )
                             }
 
@@ -447,7 +470,7 @@ private fun NekoXrayRoot(
                                     onCopiedNotice = { msg ->
                                         scope.launch { snackbarHostState.showSnackbar(msg) }
                                     },
-                                    onBack = { navController.popBackStack() },
+                                    onBack = { navController.popBackStackSafely(backEntry) },
                                 )
                             }
                         }
@@ -456,5 +479,39 @@ private fun NekoXrayRoot(
             }
         }
     }
+    }
+}
+
+internal fun canPopBackStackSafely(
+    entryLifecycleState: Lifecycle.State?,
+    hasPreviousEntry: Boolean,
+): Boolean {
+    if (!hasPreviousEntry) return false
+    if (entryLifecycleState != null && !entryLifecycleState.isAtLeast(Lifecycle.State.RESUMED)) {
+        return false
+    }
+    return true
+}
+
+private fun NavHostController.popBackStackSafely(fromEntry: NavBackStackEntry? = null): Boolean {
+    if (!canPopBackStackSafely(
+            entryLifecycleState = fromEntry?.lifecycle?.currentState,
+            hasPreviousEntry = previousBackStackEntry != null,
+        )
+    ) {
+        return false
+    }
+    return popBackStack()
+}
+
+private fun NavHostController.navigateSubScreenSafely(
+    fromEntry: NavBackStackEntry?,
+    route: NekoRoute,
+) {
+    if (fromEntry != null && !fromEntry.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
+        return
+    }
+    navigate(route) {
+        launchSingleTop = true
     }
 }

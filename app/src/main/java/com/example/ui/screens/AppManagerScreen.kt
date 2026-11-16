@@ -187,6 +187,7 @@ fun AppManagerScreen(
     var manualPkg by remember { mutableStateOf("") }
     var showImportDialog by remember { mutableStateOf(false) }
     var importText by remember { mutableStateOf("") }
+    var isLeavingScreen by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         apps = withContext(Dispatchers.IO) {
@@ -245,7 +246,16 @@ fun AppManagerScreen(
                     }
                 },
                 navigationIcon = {
-                    IconButton(onClick = onBack, modifier = Modifier.testTag("app_manager_back_button")) {
+                    IconButton(
+                        onClick = {
+                            if (!isLeavingScreen) {
+                                isLeavingScreen = true
+                                onBack()
+                            }
+                        },
+                        enabled = !isLeavingScreen,
+                        modifier = Modifier.testTag("app_manager_back_button"),
+                    ) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = strings.back)
                     }
                 },

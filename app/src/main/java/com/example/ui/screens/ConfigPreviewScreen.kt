@@ -63,6 +63,7 @@ fun ConfigPreviewScreen(
     val clipboard = LocalClipboardManager.current
     val strings = LocalAppStrings.current
     var profile by remember { mutableStateOf<ProxyProfile?>(null) }
+    var isLeavingScreen by remember { mutableStateOf(false) }
 
     LaunchedEffect(profileId) {
         profile = loadProfile(profileId)
@@ -77,7 +78,16 @@ fun ConfigPreviewScreen(
             TopAppBar(
                 title = { Text("Xray $XRAY_CORE_VERSION Config") },
                 navigationIcon = {
-                    IconButton(onClick = onBack, modifier = Modifier.testTag("config_back_button")) {
+                    IconButton(
+                        onClick = {
+                            if (!isLeavingScreen) {
+                                isLeavingScreen = true
+                                onBack()
+                            }
+                        },
+                        enabled = !isLeavingScreen,
+                        modifier = Modifier.testTag("config_back_button"),
+                    ) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = strings.back)
                     }
                 },
