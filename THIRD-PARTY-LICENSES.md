@@ -19,20 +19,25 @@ No source code from GPL-licensed projects (such as NekoBoxForAndroid) is include
 ## 2. Xray-core (bundled inside AndroidLibXrayLite)
 - **Upstream:** https://github.com/XTLS/Xray-core
 - **License:** Mozilla Public License 2.0 (**MPL-2.0**)
-- **Usage:** Core proxy and tunneling engine compiled inside `libv2ray.aar`.
+- **Usage:** Core proxy and tunneling engine compiled inside `libv2ray.aar` (including VLESS REALITY, XHTTP, VMess, Trojan, Shadowsocks, WireGuard, and native Hysteria 2).
 
-## 3. mwiede/jsch
+## 3. tech.kwik:kwik (`0.12.2`)
+- **Upstream:** https://github.com/ptrd/kwik
+- **License:** GNU Lesser General Public License v3.0 (**LGPL-3.0**)
+- **Usage:** Pure-Java QUIC & TLS 1.3 client library powering `TuicTunnelBridge` for TUIC v5 (`tuic://`) connections, 0-RTT session resumption, and RFC 8446 `ExportKeyingMaterial` authentication.
+
+## 4. mwiede/jsch (`2.28.8`)
 - **Upstream:** https://github.com/mwiede/jsch
 - **License:** Revised BSD License (**BSD-3-Clause**)
 - **Usage:** Pure-Java SSH2 client powering `SshTunnelBridge`.
 
-## 4. Routing Geo Data (`geoip.dat` & `geosite.dat`)
+## 5. Routing Geo Data (`geoip.dat` & `geosite.dat`)
 - **`v2fly/geoip` (`geoip.dat`):** https://github.com/v2fly/geoip — Creative Commons Attribution-ShareAlike 4.0 International (**CC-BY-SA-4.0**)
 - **`v2fly/domain-list-community` (`dlc.dat` / `geosite.dat`):** https://github.com/v2fly/domain-list-community — **MIT License**
 - **Usage:** Downloaded automatically at build time (`DownloadGeoAssetsTask` in `app/build.gradle.kts`) into `app/src/main/assets/` and unpacked on first launch for Xray routing rules (`geoip:private`, `geosite:private`, `geosite:category-ads-all`, etc.).
 
-## 5. Open-Source Libraries under Apache License 2.0
-- **AndroidX / Jetpack Compose / Material 3 / Room / CameraX / DataStore / Navigation:** Apache-2.0
+## 6. Open-Source Libraries under Apache License 2.0
+- **AndroidX / Jetpack Compose / Material 3 / Room (`2.7.0`) / CameraX (`1.5.0`) / DataStore / Navigation:** Apache-2.0
 - **Kotlin Standard Library, Kotlin Coroutines, kotlinx.serialization:** Apache-2.0
 - **OkHttp (`com.squareup.okhttp3`):** Apache-2.0
-- **ZXing Core (`com.google.zxing:core`):** Apache-2.0
+- **ZXing Core (`com.google.zxing:core` `3.5.3`):** Apache-2.0

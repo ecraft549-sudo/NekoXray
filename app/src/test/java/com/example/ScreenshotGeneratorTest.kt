@@ -116,6 +116,44 @@ class ScreenshotGeneratorTest {
             ),
             ProxyProfile(
                 id = 3L,
+                groupId = 1L,
+                name = "Tokyo Hysteria 2 · Brutal",
+                protocol = ProxyProtocol.HYSTERIA2,
+                serverAddress = "jp-tyo.example.net",
+                serverPort = 443,
+                password = "hy2-demo-password",
+                sni = "cdn.example.net",
+                hy2Obfs = "salamander",
+                hy2ObfsPassword = "obfs",
+                hy2UpMbps = 100,
+                hy2DownMbps = 300,
+                hy2Ports = "20000-40000",
+                hy2HopInterval = 30,
+                security = SecurityType.TLS,
+                flow = FlowType.NONE,
+                latencyMs = null,
+                tlsLatencyMs = 74,
+            ),
+            ProxyProfile(
+                id = 4L,
+                groupId = 1L,
+                name = "Singapore TUIC v5 · 0-RTT",
+                protocol = ProxyProtocol.TUIC,
+                serverAddress = "sg-sin.example.net",
+                serverPort = 443,
+                uuid = keys.uuid,
+                password = "tuic-demo-password",
+                sni = "edge.example.net",
+                tuicCongestionControl = "bbr",
+                tuicUdpRelayMode = "native",
+                tuicZeroRttHandshake = true,
+                security = SecurityType.TLS,
+                flow = FlowType.NONE,
+                latencyMs = null,
+                tlsLatencyMs = 81,
+            ),
+            ProxyProfile(
+                id = 5L,
                 groupId = 2L,
                 name = "Helsinki SSH Tunnel",
                 protocol = ProxyProtocol.SSH,
@@ -127,21 +165,6 @@ class ScreenshotGeneratorTest {
                 security = SecurityType.NONE,
                 flow = FlowType.NONE,
                 latencyMs = 54,
-            ),
-            ProxyProfile(
-                id = 4L,
-                groupId = 2L,
-                name = "Amsterdam Trojan gRPC",
-                protocol = ProxyProtocol.TROJAN,
-                serverAddress = "nl-ams.example.org",
-                serverPort = 443,
-                security = SecurityType.TLS,
-                transport = TransportType.GRPC,
-                sni = "cdn.example.org",
-                fingerprint = "firefox",
-                flow = FlowType.NONE,
-                latencyMs = 112,
-                tlsLatencyMs = 210,
             ),
         )
         val groups = listOf(
@@ -186,10 +209,11 @@ class ScreenshotGeneratorTest {
                 perAppPackages = setOf(
                     "org.telegram.messenger",
                     "com.google.android.youtube",
-                    "com.discord",
+                    "com.android.vending",
                     "com.android.chrome",
                 ),
                 fragmentEnabled = true,
+                directDnsEnabled = true,
             ),
             selectedProfileId = 1L,
             selectedGroupId = 0L,
@@ -676,20 +700,20 @@ class ScreenshotGeneratorTest {
         drawFloatingCard(
             x = 748f,
             y = 48f,
-            cardW = 320f,
+            cardW = 328f,
             cardH = 66f,
             dotColor = 0xFF34D399.toInt(),
-            title = "VLESS · REALITY · VISION",
-            subtitle = "Post-Quantum ML-KEM-768 & XHTTP",
+            title = "VLESS · HY2 · TUIC v5",
+            subtitle = "REALITY · ML-KEM-768 · QUIC",
         )
         drawFloatingCard(
-            x = 1220f,
+            x = 1210f,
             y = 666f,
-            cardW = 335f,
+            cardW = 345f,
             cardH = 66f,
             dotColor = 0xFF38BDF8.toInt(),
             title = "Wi-Fi ↔ 5G Seamless Handoff",
-            subtitle = "Widgets 4×2, 3×1, 1×1 & Always-On VPN",
+            subtitle = "DoH Anti-Spoof · Always-On · Widgets",
         )
 
         // 6. Left-column hero copy & branding matching docs/index.html
@@ -777,8 +801,8 @@ class ScreenshotGeneratorTest {
         }
         val descLines = listOf(
             "Native Android VPN & proxy client supporting VLESS REALITY,",
-            "XHTTP (SplitHTTP), post-quantum ML-KEM-768 + pqv, built-in",
-            "SSH SOCKS5/DNS bridge, smart GeoIP/GeoSite routing,",
+            "Hysteria 2, TUIC v5, XHTTP, ML-KEM-768, SSH SOCKS5/DNS bridge,",
+            "anti-spoofing DoH DNS, smart GeoIP/GeoSite routing,",
             "and zero-drop Wi-Fi ↔ 5G/LTE network handoff.",
         )
         descLines.forEachIndexed { idx, line ->
@@ -787,9 +811,9 @@ class ScreenshotGeneratorTest {
 
         // Spec chips grid (matching .spec-chip on website)
         val chipRows = listOf(
-            listOf("VLESS · REALITY · XHTTP", "ML-KEM-768 + ML-DSA-65 pqv", "SSH + WireGuard + Trojan"),
-            listOf("Seamless Wi-Fi ↔ LTE/5G", "Always-On & Lockdown VPN", "GeoIP / GeoSite + Per-App"),
-            listOf("Widgets 4×2 · 3×1 · 1×1", "Vector QR v40 (2200+ chars)", "EN · RU · ZH · FA · ES"),
+            listOf("VLESS · REALITY · XHTTP", "Hysteria 2 · TUIC v5", "SSH · WireGuard · Trojan"),
+            listOf("ML-KEM-768 + pqv", "DoH + Direct DNS", "GeoIP / GeoSite + Apps"),
+            listOf("Wi-Fi ↔ 5G Handoff", "QR v40 (2200+ chars)", "EN · RU · ZH · FA · ES"),
         )
         val chipTextPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
             color = 0xFFE2E8F0.toInt()

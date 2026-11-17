@@ -23,6 +23,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.QrCodeScanner
@@ -36,6 +37,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -447,7 +449,13 @@ private fun EngineStatusBanner(
                     ) {
                         DropdownMenuItem(
                             text = { Text(strings.scanQrCode) },
-                            leadingIcon = { Icon(Icons.Default.QrCodeScanner, null) },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.Default.QrCodeScanner,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(20.dp),
+                                )
+                            },
                             onClick = {
                                 onToggleAddMenu(false)
                                 onOpenQrScanner()
@@ -455,84 +463,46 @@ private fun EngineStatusBanner(
                         )
                         DropdownMenuItem(
                             text = { Text(strings.importUriMenu) },
-                            leadingIcon = { Icon(Icons.Default.ContentPaste, null) },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.Default.ContentPaste,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(20.dp),
+                                )
+                            },
                             onClick = {
                                 onToggleAddMenu(false)
                                 onOpenImport()
                             },
                         )
-                        DropdownMenuItem(
-                            text = { Text(strings.newVlessReality) },
-                            leadingIcon = { Icon(Icons.Default.Shield, null) },
-                            onClick = {
-                                onToggleAddMenu(false)
-                                onCreateProfile(ProxyProtocol.VLESS)
-                            },
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+                        val protocolCreateItems = listOf(
+                            Triple(strings.newVlessReality, ProxyProtocol.VLESS, Icons.Default.Dns),
+                            Triple(strings.newVmess, ProxyProtocol.VMESS, Icons.Default.Dns),
+                            Triple(strings.newTrojan, ProxyProtocol.TROJAN, Icons.Default.Dns),
+                            Triple(strings.newShadowsocks, ProxyProtocol.SHADOWSOCKS, Icons.Default.Dns),
+                            Triple(strings.newHysteria2, ProxyProtocol.HYSTERIA2, Icons.Default.Dns),
+                            Triple(strings.newTuic, ProxyProtocol.TUIC, Icons.Default.Dns),
+                            Triple(strings.newWireGuard, ProxyProtocol.WIREGUARD, Icons.Default.Dns),
+                            Triple(strings.newSshTunnel, ProxyProtocol.SSH, Icons.Default.Terminal),
+                            Triple(strings.customXrayJson, ProxyProtocol.CUSTOM_JSON, Icons.Default.Code),
                         )
-                        DropdownMenuItem(
-                            text = { Text(strings.newVmess) },
-                            leadingIcon = { Icon(Icons.Default.Dns, null) },
-                            onClick = {
-                                onToggleAddMenu(false)
-                                onCreateProfile(ProxyProtocol.VMESS)
-                            },
-                        )
-                        DropdownMenuItem(
-                            text = { Text(strings.newTrojan) },
-                            leadingIcon = { Icon(Icons.Default.Dns, null) },
-                            onClick = {
-                                onToggleAddMenu(false)
-                                onCreateProfile(ProxyProtocol.TROJAN)
-                            },
-                        )
-                        DropdownMenuItem(
-                            text = { Text(strings.newShadowsocks) },
-                            leadingIcon = { Icon(Icons.Default.Dns, null) },
-                            onClick = {
-                                onToggleAddMenu(false)
-                                onCreateProfile(ProxyProtocol.SHADOWSOCKS)
-                            },
-                        )
-                        DropdownMenuItem(
-                            text = { Text(strings.newHysteria2) },
-                            leadingIcon = { Icon(Icons.Default.Speed, null) },
-                            onClick = {
-                                onToggleAddMenu(false)
-                                onCreateProfile(ProxyProtocol.HYSTERIA2)
-                            },
-                        )
-                        DropdownMenuItem(
-                            text = { Text(strings.newTuic) },
-                            leadingIcon = { Icon(Icons.Default.Speed, null) },
-                            onClick = {
-                                onToggleAddMenu(false)
-                                onCreateProfile(ProxyProtocol.TUIC)
-                            },
-                        )
-                        DropdownMenuItem(
-                            text = { Text(strings.newWireGuard) },
-                            leadingIcon = { Icon(Icons.Default.Dns, null) },
-                            onClick = {
-                                onToggleAddMenu(false)
-                                onCreateProfile(ProxyProtocol.WIREGUARD)
-                            },
-                        )
-                        DropdownMenuItem(
-                            text = { Text(strings.newSshTunnel) },
-                            leadingIcon = { Icon(Icons.Default.Terminal, null) },
-                            onClick = {
-                                onToggleAddMenu(false)
-                                onCreateProfile(ProxyProtocol.SSH)
-                            },
-                        )
-                        DropdownMenuItem(
-                            text = { Text(strings.customXrayJson) },
-                            leadingIcon = { Icon(Icons.Default.Terminal, null) },
-                            onClick = {
-                                onToggleAddMenu(false)
-                                onCreateProfile(ProxyProtocol.CUSTOM_JSON)
-                            },
-                        )
+                        protocolCreateItems.forEach { (label, protocol, icon) ->
+                            DropdownMenuItem(
+                                text = { Text(label) },
+                                leadingIcon = {
+                                    Icon(
+                                        imageVector = icon,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(20.dp),
+                                    )
+                                },
+                                onClick = {
+                                    onToggleAddMenu(false)
+                                    onCreateProfile(protocol)
+                                },
+                            )
+                        }
                     }
                 }
             }
