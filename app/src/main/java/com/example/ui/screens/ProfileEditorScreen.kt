@@ -90,9 +90,15 @@ fun ProfileEditorScreen(
                 protocol = startProto,
                 serverPort = if (startProto == ProxyProtocol.SSH) 22 else 443,
                 username = if (startProto == ProxyProtocol.SSH) "root" else "",
-                security = if (startProto == ProxyProtocol.VLESS) SecurityType.REALITY else if (startProto == ProxyProtocol.TROJAN) SecurityType.TLS else SecurityType.NONE,
+                uuid = if (startProto == ProxyProtocol.TUIC && profileId == 0L) RealityKeyGenerator.generateUuid() else "",
+                security = when (startProto) {
+                    ProxyProtocol.VLESS -> SecurityType.REALITY
+                    ProxyProtocol.TROJAN, ProxyProtocol.HYSTERIA2, ProxyProtocol.TUIC -> SecurityType.TLS
+                    else -> SecurityType.NONE
+                },
                 flow = if (startProto == ProxyProtocol.VLESS) FlowType.VISION else FlowType.NONE,
                 sni = if (startProto == ProxyProtocol.VLESS) "www.microsoft.com" else "",
+                alpn = if (startProto == ProxyProtocol.HYSTERIA2 || startProto == ProxyProtocol.TUIC) "h3" else "",
             )
         )
     }
@@ -187,11 +193,22 @@ fun ProfileEditorScreen(
                         protocol = proto,
                         serverPort = if (proto == ProxyProtocol.SSH && profile.serverPort == 443) 22 else if (proto != ProxyProtocol.SSH && profile.serverPort == 22) 443 else profile.serverPort,
                         username = if (proto == ProxyProtocol.SSH && profile.username.isBlank()) "root" else profile.username,
+                        uuid = if ((proto == ProxyProtocol.TUIC || proto == ProxyProtocol.VLESS || proto == ProxyProtocol.VMESS) && profile.uuid.isBlank()) {
+                            RealityKeyGenerator.generateUuid()
+                        } else {
+                            profile.uuid
+                        },
                         security = when (proto) {
                             ProxyProtocol.VLESS -> if (profile.security == SecurityType.NONE) SecurityType.REALITY else profile.security
                             ProxyProtocol.TROJAN -> if (profile.security == SecurityType.NONE) SecurityType.TLS else profile.security
+                            ProxyProtocol.HYSTERIA2, ProxyProtocol.TUIC -> SecurityType.TLS
                             ProxyProtocol.SHADOWSOCKS, ProxyProtocol.SOCKS5, ProxyProtocol.SSH, ProxyProtocol.WIREGUARD, ProxyProtocol.CUSTOM_JSON -> SecurityType.NONE
                             else -> profile.security
+                        },
+                        alpn = if ((proto == ProxyProtocol.HYSTERIA2 || proto == ProxyProtocol.TUIC) && profile.alpn.isBlank()) {
+                            "h3"
+                        } else {
+                            profile.alpn
                         },
                         flow = if (proto == ProxyProtocol.VLESS) profile.flow else FlowType.NONE,
                     )
@@ -437,6 +454,279 @@ fun ProfileEditorScreen(
                                 .fillMaxWidth()
                                 .testTag("editor_ssh_public_key_input"),
                         )
+                    }
+
+                    ProxyProtocol.HYSTERIA2 -> {
+                        OutlinedTextField(
+                            value = profile.password,
+                            onValueChange = { profile = profile.copy(password = it) },
+                            label = { Text(strings.hy2AuthLabel) },
+                            singleLine = true,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("editor_hy2_password_input"),
+                        )
+
+                        Card(
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                            ),
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(14.dp),
+                                verticalArrangement = Arrangement.spacedBy(10.dp),
+                            ) {
+                                Text(strings.hy2SettingsTitle, style = MaterialTheme.typography.titleMedium)
+
+                                OutlinedTextField(
+                                    value = profile.sni,
+                                    onValueChange = { profile = profile.copy(sni = it.trim()) },
+                                    label = { Text("Server Name (SNI)") },
+                                    singleLine = true,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .testTag("editor_hy2_sni_input"),
+                                )
+
+                                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    OutlinedTextField(
+                                        value = profile.alpn,
+                                        onValueChange = { profile = profile.copy(alpn = it) },
+                                        label = { Text("ALPN (h3)") },
+                                        singleLine = true,
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                    OutlinedTextField(
+                                        value = profile.fingerprint.ifBlank { "chrome" },
+                                        onValueChange = { profile = profile.copy(fingerprint = it.trim()) },
+                                        label = { Text("uTLS (fp)") },
+                                        singleLine = true,
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                }
+
+                                EnumDropdown(
+                                    label = strings.hy2ObfsLabel,
+                                    selected = profile.hy2Obfs.ifBlank { "none" },
+                                    options = listOf(
+                                        "" to "none",
+                                        "salamander" to "salamander",
+                                    ),
+                                    onSelect = { profile = profile.copy(hy2Obfs = it) },
+                                )
+
+                                if (profile.hy2Obfs.equals("salamander", ignoreCase = true)) {
+                                    OutlinedTextField(
+                                        value = profile.hy2ObfsPassword,
+                                        onValueChange = { profile = profile.copy(hy2ObfsPassword = it) },
+                                        label = { Text(strings.hy2ObfsPasswordLabel) },
+                                        singleLine = true,
+                                        modifier = Modifier.fillMaxWidth(),
+                                    )
+                                }
+
+                                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    OutlinedTextField(
+                                        value = profile.hy2UpMbps.toString(),
+                                        onValueChange = { v ->
+                                            v.toIntOrNull()?.let { profile = profile.copy(hy2UpMbps = it.coerceAtLeast(0)) }
+                                        },
+                                        label = { Text(strings.hy2UpMbpsLabel) },
+                                        singleLine = true,
+                                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                    OutlinedTextField(
+                                        value = profile.hy2DownMbps.toString(),
+                                        onValueChange = { v ->
+                                            v.toIntOrNull()?.let { profile = profile.copy(hy2DownMbps = it.coerceAtLeast(0)) }
+                                        },
+                                        label = { Text(strings.hy2DownMbpsLabel) },
+                                        singleLine = true,
+                                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                }
+
+                                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    OutlinedTextField(
+                                        value = profile.hy2Ports,
+                                        onValueChange = { profile = profile.copy(hy2Ports = it.trim()) },
+                                        label = { Text(strings.hy2PortsLabel) },
+                                        singleLine = true,
+                                        modifier = Modifier
+                                            .weight(2f)
+                                            .testTag("editor_hy2_ports_input"),
+                                    )
+                                    OutlinedTextField(
+                                        value = profile.hy2HopInterval.toString(),
+                                        onValueChange = { v ->
+                                            v.toIntOrNull()?.let { profile = profile.copy(hy2HopInterval = it.coerceAtLeast(1)) }
+                                        },
+                                        label = { Text(strings.hy2HopIntervalLabel) },
+                                        singleLine = true,
+                                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                }
+
+                                OutlinedTextField(
+                                    value = profile.hy2PinSha256,
+                                    onValueChange = { profile = profile.copy(hy2PinSha256 = it.trim()) },
+                                    label = { Text(strings.hy2PinSha256Label) },
+                                    singleLine = true,
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Text(strings.allowInsecureGlobalTitle, style = MaterialTheme.typography.bodyMedium)
+                                    Switch(
+                                        checked = profile.allowInsecure,
+                                        onCheckedChange = { profile = profile.copy(allowInsecure = it) },
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    ProxyProtocol.TUIC -> {
+                        OutlinedTextField(
+                            value = profile.uuid,
+                            onValueChange = { profile = profile.copy(uuid = it.trim()) },
+                            label = { Text("UUID") },
+                            singleLine = true,
+                            trailingIcon = {
+                                IconButton(
+                                    onClick = {
+                                        profile = profile.copy(uuid = RealityKeyGenerator.generateUuid())
+                                    },
+                                ) {
+                                    Icon(Icons.Default.Refresh, contentDescription = "Generate UUID")
+                                }
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("editor_tuic_uuid_input"),
+                        )
+
+                        OutlinedTextField(
+                            value = profile.password,
+                            onValueChange = { profile = profile.copy(password = it) },
+                            label = { Text(strings.passwordLabel) },
+                            singleLine = true,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("editor_tuic_password_input"),
+                        )
+
+                        Card(
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                            ),
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(14.dp),
+                                verticalArrangement = Arrangement.spacedBy(10.dp),
+                            ) {
+                                Text(strings.tuicSettingsTitle, style = MaterialTheme.typography.titleMedium)
+
+                                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    OutlinedTextField(
+                                        value = profile.sni,
+                                        onValueChange = { profile = profile.copy(sni = it.trim()) },
+                                        label = { Text("Server Name (SNI)") },
+                                        singleLine = true,
+                                        modifier = Modifier.weight(1.5f),
+                                    )
+                                    OutlinedTextField(
+                                        value = profile.alpn,
+                                        onValueChange = { profile = profile.copy(alpn = it) },
+                                        label = { Text("ALPN (h3)") },
+                                        singleLine = true,
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                }
+
+                                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        EnumDropdown(
+                                            label = strings.tuicCongestionLabel,
+                                            selected = profile.tuicCongestionControl.ifBlank { "bbr" },
+                                            options = listOf(
+                                                "bbr" to "bbr",
+                                                "cubic" to "cubic",
+                                                "new_reno" to "new_reno",
+                                            ),
+                                            onSelect = { profile = profile.copy(tuicCongestionControl = it) },
+                                        )
+                                    }
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        EnumDropdown(
+                                            label = strings.tuicUdpModeLabel,
+                                            selected = profile.tuicUdpRelayMode.ifBlank { "native" },
+                                            options = listOf(
+                                                "native" to "native",
+                                                "quic" to "quic",
+                                            ),
+                                            onSelect = { profile = profile.copy(tuicUdpRelayMode = it) },
+                                        )
+                                    }
+                                }
+
+                                OutlinedTextField(
+                                    value = profile.tuicHeartbeatIntervalMs.toString(),
+                                    onValueChange = { v ->
+                                        v.toIntOrNull()?.let { profile = profile.copy(tuicHeartbeatIntervalMs = it.coerceAtLeast(0)) }
+                                    },
+                                    label = { Text(strings.tuicHeartbeatLabel) },
+                                    singleLine = true,
+                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Text(strings.tuicZeroRttLabel, style = MaterialTheme.typography.bodyMedium)
+                                    Switch(
+                                        checked = profile.tuicZeroRttHandshake,
+                                        onCheckedChange = { profile = profile.copy(tuicZeroRttHandshake = it) },
+                                    )
+                                }
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Text(strings.tuicDisableSniLabel, style = MaterialTheme.typography.bodyMedium)
+                                    Switch(
+                                        checked = profile.tuicDisableSni,
+                                        onCheckedChange = { profile = profile.copy(tuicDisableSni = it) },
+                                    )
+                                }
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Text(strings.allowInsecureGlobalTitle, style = MaterialTheme.typography.bodyMedium)
+                                    Switch(
+                                        checked = profile.allowInsecure,
+                                        onCheckedChange = { profile = profile.copy(allowInsecure = it) },
+                                    )
+                                }
+                            }
+                        }
                     }
 
                     ProxyProtocol.CUSTOM_JSON -> Unit

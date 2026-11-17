@@ -10,6 +10,8 @@ enum class ProxyProtocol(val displayName: String, val scheme: String) {
     VMESS("VMess", "vmess"),
     TROJAN("Trojan", "trojan"),
     SHADOWSOCKS("Shadowsocks", "ss"),
+    HYSTERIA2("Hysteria 2", "hysteria2"),
+    TUIC("TUIC v5", "tuic"),
     SOCKS5("SOCKS5", "socks"),
     HTTP("HTTP", "http"),
     SSH("SSH", "ssh"),
@@ -152,6 +154,22 @@ data class ProxyProfile(
     val sshPrivateKey: String = "",
     val sshPrivateKeyPassphrase: String = "",
     val sshPublicKey: String = "",
+
+    // Hysteria 2 fields
+    val hy2Obfs: String = "",
+    val hy2ObfsPassword: String = "",
+    val hy2UpMbps: Int = 0,
+    val hy2DownMbps: Int = 0,
+    val hy2Ports: String = "",
+    val hy2HopInterval: Int = 30,
+    val hy2PinSha256: String = "",
+
+    // TUIC v5 fields
+    val tuicCongestionControl: String = "bbr",
+    val tuicUdpRelayMode: String = "native",
+    val tuicZeroRttHandshake: Boolean = false,
+    val tuicDisableSni: Boolean = false,
+    val tuicHeartbeatIntervalMs: Int = 10000,
 
     // Mux & Sockopt
     val muxEnabled: Boolean = false,

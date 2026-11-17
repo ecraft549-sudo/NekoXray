@@ -114,7 +114,18 @@ class NekoRepository(
     }
 
     suspend fun testProfileLatency(profile: ProxyProfile): Pair<Int?, Int?> {
-        val tcpMs = NetworkTester.testTcpLatency(profile.serverAddress, profile.serverPort)
+        if (profile.protocol == ProxyProtocol.TUIC) {
+            val tuicMs = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                com.example.core.vpn.TuicTunnelBridge.testTuicHandshake(profile)
+            }
+            profileDao.updateLatency(profile.id, null, tuicMs, System.currentTimeMillis())
+            return null to tuicMs
+        }
+        val tcpMs = if (profile.protocol == ProxyProtocol.HYSTERIA2) {
+            null
+        } else {
+            NetworkTester.testTcpLatency(profile.serverAddress, profile.serverPort)
+        }
         if (profile.protocol == ProxyProtocol.SSH) {
             val sshMs = if (tcpMs != null) {
                 kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
@@ -143,7 +154,10 @@ class NekoRepository(
         } else {
             null
         }
-        val tlsMs = xrayDelayMs ?: if (tcpMs != null && profile.security.wireValue != "none") {
+        val tlsMs = xrayDelayMs ?: if (tcpMs != null &&
+            profile.protocol != ProxyProtocol.HYSTERIA2 &&
+            profile.security.wireValue != "none"
+        ) {
             val sni = profile.sni.ifBlank { profile.serverAddress }
             NetworkTester.probeTlsSni(profile.serverAddress, profile.serverPort, sni).latencyMs
         } else {

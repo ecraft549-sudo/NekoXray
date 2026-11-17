@@ -1486,4 +1486,316 @@ class XrayRealityTest {
             ),
         )
     }
+
+    @Test
+    fun `hysteria2 and hy2 uri parsing, share export, validation, and xray json generation`() {
+        val hy2Uri = "hy2://s3cr3t-pass@198.51.100.42:443" +
+            "?sni=cdn.example.com&insecure=1&obfs=salamander&obfs-password=sala-pass" +
+            "&upmbps=50&downmbps=200&mport=20000-40000&hopinterval=45" +
+            "&pinSHA256=ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789" +
+            "&alpn=h3#Hy2-Test"
+
+        val parsed = UriParser.parseSingle(hy2Uri)
+        assertNotNull(parsed)
+        parsed!!
+        assertEquals(ProxyProtocol.HYSTERIA2, parsed.protocol)
+        assertEquals("198.51.100.42", parsed.serverAddress)
+        assertEquals(443, parsed.serverPort)
+        assertEquals("s3cr3t-pass", parsed.password)
+        assertEquals("cdn.example.com", parsed.sni)
+        assertTrue(parsed.allowInsecure)
+        assertEquals("salamander", parsed.hy2Obfs)
+        assertEquals("sala-pass", parsed.hy2ObfsPassword)
+        assertEquals(50, parsed.hy2UpMbps)
+        assertEquals(200, parsed.hy2DownMbps)
+        assertEquals("20000-40000", parsed.hy2Ports)
+        assertEquals(45, parsed.hy2HopInterval)
+        assertEquals("ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789", parsed.hy2PinSha256)
+        assertEquals("h3", parsed.alpn)
+        assertEquals("Hy2-Test", parsed.name)
+
+        // Share URI round-trip
+        val exported = UriParser.toShareUri(parsed)
+        assertTrue(exported.startsWith("hysteria2://"))
+        val reparsed = UriParser.parseSingle(exported)
+        assertNotNull(reparsed)
+        assertEquals(parsed.password, reparsed!!.password)
+        assertEquals(parsed.hy2Obfs, reparsed.hy2Obfs)
+        assertEquals(parsed.hy2ObfsPassword, reparsed.hy2ObfsPassword)
+        assertEquals(parsed.hy2UpMbps, reparsed.hy2UpMbps)
+        assertEquals(parsed.hy2DownMbps, reparsed.hy2DownMbps)
+        assertEquals(parsed.hy2Ports, reparsed.hy2Ports)
+        assertEquals(parsed.hy2HopInterval, reparsed.hy2HopInterval)
+        assertEquals(parsed.hy2PinSha256, reparsed.hy2PinSha256)
+
+        // Validation
+        val issues = XrayConfigBuilder.validateProfile(parsed)
+        assertTrue(issues.none { it.isError })
+        val emptyPasswordIssues = XrayConfigBuilder.validateProfile(parsed.copy(password = ""))
+        assertTrue(emptyPasswordIssues.any { !it.isError && it.message.contains("auth password", ignoreCase = true) })
+        assertTrue(XrayConfigBuilder.validateProfile(parsed.copy(serverAddress = "")).any { it.isError })
+        assertTrue(
+            XrayConfigBuilder.validateProfile(parsed.copy(hy2Obfs = "salamander", hy2ObfsPassword = ""))
+                .any { it.isError }
+        )
+
+        // Xray JSON generation
+        val config = JSONObject(XrayConfigBuilder.buildConfigJson(parsed, XraySettings(), emptyList()))
+        val outbound = config.getJSONArray("outbounds").getJSONObject(0)
+        assertEquals("hysteria", outbound.getString("protocol"))
+        val settings = outbound.getJSONObject("settings")
+        assertEquals(2, settings.getInt("version"))
+        assertEquals("198.51.100.42", settings.getString("address"))
+        assertEquals(443, settings.getInt("port"))
+
+        val stream = outbound.getJSONObject("streamSettings")
+        assertEquals("hysteria", stream.getString("network"))
+        assertEquals("tls", stream.getString("security"))
+        assertEquals("s3cr3t-pass", stream.getJSONObject("hysteriaSettings").getString("auth"))
+
+        val tls = stream.getJSONObject("tlsSettings")
+        assertEquals("cdn.example.com", tls.getString("serverName"))
+        assertEquals(parsed.hy2PinSha256, tls.getString("pinnedPeerCertSha256"))
+
+        val finalmask = stream.getJSONObject("finalmask")
+        val udpMasks = finalmask.getJSONArray("udp")
+        assertEquals(2, udpMasks.length())
+        assertEquals("salamander", udpMasks.getJSONObject(0).getString("type"))
+        assertEquals("sala-pass", udpMasks.getJSONObject(0).getJSONObject("settings").getString("password"))
+        assertEquals("udphop", udpMasks.getJSONObject(1).getString("type"))
+        assertEquals("20000-40000", udpMasks.getJSONObject(1).getJSONObject("settings").getString("port"))
+        assertEquals(45, udpMasks.getJSONObject(1).getJSONObject("settings").getInt("interval"))
+
+        val quicParams = finalmask.getJSONObject("quicParams")
+        assertEquals("brutal", quicParams.getString("congestion"))
+        assertEquals("50 mbps", quicParams.getString("brutalUp"))
+        assertEquals("200 mbps", quicParams.getString("brutalDown"))
+    }
+
+    @Test
+    fun `tuic v5 uri parsing, share export, validation, and xray bridge json generation`() {
+        val fakeUuid = "00000000-0000-4000-8000-000000000001"
+        val tuicUri = "tuic://$fakeUuid:tuic-pass@203.0.113.77:8443" +
+            "?congestion_control=bbr&udp_relay_mode=quic&alpn=h3&sni=edge.example.com" +
+            "&allow_insecure=1&disable_sni=1&zero_rtt_handshake=1&heartbeat=15000#TUIC-Test"
+
+        val parsed = UriParser.parseSingle(tuicUri)
+        assertNotNull(parsed)
+        parsed!!
+        assertEquals(ProxyProtocol.TUIC, parsed.protocol)
+        assertEquals("203.0.113.77", parsed.serverAddress)
+        assertEquals(8443, parsed.serverPort)
+        assertEquals(fakeUuid, parsed.uuid)
+        assertEquals("tuic-pass", parsed.password)
+        assertEquals("bbr", parsed.tuicCongestionControl)
+        assertEquals("quic", parsed.tuicUdpRelayMode)
+        assertEquals("h3", parsed.alpn)
+        assertEquals("edge.example.com", parsed.sni)
+        assertTrue(parsed.allowInsecure)
+        assertTrue(parsed.tuicDisableSni)
+        assertTrue(parsed.tuicZeroRttHandshake)
+        assertEquals(15000, parsed.tuicHeartbeatIntervalMs)
+        assertEquals("TUIC-Test", parsed.name)
+
+        // Share URI round-trip
+        val exported = UriParser.toShareUri(parsed)
+        assertTrue(exported.startsWith("tuic://"))
+        val reparsed = UriParser.parseSingle(exported)
+        assertNotNull(reparsed)
+        assertEquals(parsed.uuid, reparsed!!.uuid)
+        assertEquals(parsed.password, reparsed.password)
+        assertEquals(parsed.tuicCongestionControl, reparsed.tuicCongestionControl)
+        assertEquals(parsed.tuicUdpRelayMode, reparsed.tuicUdpRelayMode)
+        assertEquals(parsed.tuicDisableSni, reparsed.tuicDisableSni)
+        assertEquals(parsed.tuicZeroRttHandshake, reparsed.tuicZeroRttHandshake)
+        assertEquals(parsed.tuicHeartbeatIntervalMs, reparsed.tuicHeartbeatIntervalMs)
+
+        // Validation
+        assertTrue(XrayConfigBuilder.validateProfile(parsed).none { it.isError })
+        assertTrue(XrayConfigBuilder.validateProfile(parsed.copy(uuid = "not-a-uuid")).any { it.isError })
+
+        // Xray JSON generation uses local SOCKS5 bridge pointing to TuicTunnelBridge port
+        val config = JSONObject(
+            XrayConfigBuilder.buildConfigJson(
+                profile = parsed,
+                settings = XraySettings(),
+                rules = emptyList(),
+                tuicLocalBridgePort = 39123,
+            )
+        )
+        val outbound = config.getJSONArray("outbounds").getJSONObject(0)
+        assertEquals("socks", outbound.getString("protocol"))
+        val server = outbound.getJSONObject("settings").getJSONArray("servers").getJSONObject(0)
+        assertEquals("127.0.0.1", server.getString("address"))
+        assertEquals(39123, server.getInt("port"))
+    }
+
+    @Test
+    fun `tuic v5 wire protocol codec, hkdf tls exporter, and local socks5 tcp bridge`() {
+        // 1. Address encoding / decoding (Domain, IPv4, IPv6, None)
+        val domEncoded = com.example.core.vpn.TuicTunnelBridge.encodeTuicAddress("api.example.com", 443)
+        val domDecoded = com.example.core.vpn.TuicTunnelBridge.readTuicAddress(domEncoded.inputStream())
+        assertEquals(com.example.core.vpn.TuicTunnelBridge.TuicAddress.Domain("api.example.com", 443), domDecoded)
+
+        val v4Encoded = com.example.core.vpn.TuicTunnelBridge.encodeTuicAddress("198.51.100.9", 8080)
+        val v4Decoded = com.example.core.vpn.TuicTunnelBridge.readTuicAddress(v4Encoded.inputStream())
+        assertTrue(v4Decoded is com.example.core.vpn.TuicTunnelBridge.TuicAddress.Ip)
+        assertEquals(8080, (v4Decoded as com.example.core.vpn.TuicTunnelBridge.TuicAddress.Ip).port)
+        assertEquals("198.51.100.9", v4Decoded.address.hostAddress)
+
+        val v6Encoded = com.example.core.vpn.TuicTunnelBridge.encodeTuicAddress("2001:db8::1", 53)
+        val v6Decoded = com.example.core.vpn.TuicTunnelBridge.readTuicAddress(v6Encoded.inputStream())
+        assertTrue(v6Decoded is com.example.core.vpn.TuicTunnelBridge.TuicAddress.Ip)
+        assertEquals(53, (v6Decoded as com.example.core.vpn.TuicTunnelBridge.TuicAddress.Ip).port)
+
+        // 2. Packet frame build + parse roundtrip
+        val payload = "dns-query-bytes".toByteArray(Charsets.UTF_8)
+        val pktFrame = com.example.core.vpn.TuicTunnelBridge.buildPacketFrame(
+            assocId = 7,
+            pktId = 42,
+            fragTotal = 1,
+            fragId = 0,
+            encodedAddr = v4Encoded,
+            payload = payload,
+        )
+        val parsedPkt = com.example.core.vpn.TuicTunnelBridge.parsePacketFrame(pktFrame)
+        assertNotNull(parsedPkt)
+        assertEquals(7, parsedPkt!!.assocId)
+        assertEquals(42, parsedPkt.pktId)
+        assertEquals(1, parsedPkt.fragTotal)
+        assertEquals(0, parsedPkt.fragId)
+        assertTrue(payload.contentEquals(parsedPkt.payload))
+
+        // 3. Authenticate / Dissociate / Heartbeat frames
+        val uuid16 = com.example.core.vpn.TuicTunnelBridge.parseUuid16Bytes("00000000-0000-4000-8000-000000000001")
+        val token = com.example.core.vpn.TuicTunnelBridge.computeTlsExporterToken(
+            masterSecret = ByteArray(32) { 0x11 },
+            serverFinishedHash = ByteArray(32) { 0x22 },
+            emptyHash = java.security.MessageDigest.getInstance("SHA-256").digest(ByteArray(0)),
+            hashLength = 32,
+            digestAlgorithm = "SHA-256",
+            uuid16Bytes = uuid16,
+            passwordBytes = "test-pass".toByteArray(Charsets.UTF_8),
+        )
+        assertEquals(32, token.size)
+        val authFrame = com.example.core.vpn.TuicTunnelBridge.buildAuthenticateFrame(uuid16, token)
+        assertEquals(50, authFrame.size)
+        assertEquals(0x05, authFrame[0].toInt() and 0xFF)
+        assertEquals(0x00, authFrame[1].toInt() and 0xFF)
+
+        val dissoc = com.example.core.vpn.TuicTunnelBridge.buildDissociateFrame(513)
+        assertEquals(4, dissoc.size)
+        assertEquals(0x03, dissoc[1].toInt() and 0xFF)
+        assertEquals(0x02, dissoc[2].toInt() and 0xFF)
+        assertEquals(0x01, dissoc[3].toInt() and 0xFF)
+
+        val hb = com.example.core.vpn.TuicTunnelBridge.buildHeartbeatFrame()
+        assertTrue(hb.contentEquals(byteArrayOf(0x05, 0x04)))
+
+        // 4. Local SOCKS5 TCP CONNECT bridge test using loopback echo server
+        val echoServer = java.net.ServerSocket(0, 8, java.net.InetAddress.getByName("127.0.0.1"))
+        val echoThread = Thread {
+            echoServer.use { srv ->
+                srv.accept().use { peer ->
+                    val b = ByteArray(64)
+                    val n = peer.getInputStream().read(b)
+                    if (n > 0) {
+                        peer.getOutputStream().write(b, 0, n)
+                        peer.getOutputStream().flush()
+                    }
+                }
+            }
+        }.apply { start() }
+
+        val bridge = com.example.core.vpn.TuicTunnelBridge(
+            profile = com.example.core.model.ProxyProfile(
+                protocol = ProxyProtocol.TUIC,
+                serverAddress = "203.0.113.10",
+                serverPort = 443,
+                uuid = "00000000-0000-4000-8000-000000000001",
+            ),
+            directTcpConnector = { host, port ->
+                java.net.Socket(host, port)
+            },
+        )
+        val bridgePort = bridge.start()
+        try {
+            java.net.Socket("127.0.0.1", bridgePort).use { client ->
+                val out = client.getOutputStream()
+                val inp = client.getInputStream()
+                out.write(byteArrayOf(0x05, 0x01, 0x00))
+                out.flush()
+                val greetResp = ByteArray(2)
+                assertEquals(2, inp.read(greetResp))
+                assertEquals(0x00, greetResp[1].toInt())
+
+                val p = echoServer.localPort
+                out.write(
+                    byteArrayOf(
+                        0x05, 0x01, 0x00, 0x01,
+                        127, 0, 0, 1,
+                        ((p ushr 8) and 0xFF).toByte(), (p and 0xFF).toByte(),
+                    )
+                )
+                out.flush()
+                val connResp = ByteArray(10)
+                assertEquals(10, inp.read(connResp))
+                assertEquals(0x00, connResp[1].toInt())
+
+                out.write("ping-tuic".toByteArray(Charsets.UTF_8))
+                out.flush()
+                val echoBuf = ByteArray(9)
+                assertEquals(9, inp.read(echoBuf))
+                assertEquals("ping-tuic", String(echoBuf, Charsets.UTF_8))
+            }
+        } finally {
+            bridge.stop()
+            echoThread.join(1500)
+        }
+    }
+
+    @Test
+    fun `room entity roundtrip and database schema support hysteria2 and tuic fields`() {
+        val hy2 = UriParser.parseSingle(
+            "hysteria2://pw@198.51.100.11:443?obfs=salamander&obfs-password=op&upmbps=30&downmbps=120&mport=30000-35000&hopinterval=20&pinSHA256=deadbeef#Hy2DB"
+        )!!
+        val hy2Round = com.example.data.local.ProfileEntity.fromDomain(hy2).toDomain()
+        assertEquals(ProxyProtocol.HYSTERIA2, hy2Round.protocol)
+        assertEquals("salamander", hy2Round.hy2Obfs)
+        assertEquals("op", hy2Round.hy2ObfsPassword)
+        assertEquals(30, hy2Round.hy2UpMbps)
+        assertEquals(120, hy2Round.hy2DownMbps)
+        assertEquals("30000-35000", hy2Round.hy2Ports)
+        assertEquals(20, hy2Round.hy2HopInterval)
+        assertEquals("deadbeef", hy2Round.hy2PinSha256)
+
+        val tuic = UriParser.parseSingle(
+            "tuic://00000000-0000-4000-8000-000000000002:pass@203.0.113.12:443?congestion_control=cubic&udp_relay_mode=quic&zero_rtt_handshake=1&disable_sni=1&heartbeat=12000#TuicDB"
+        )!!
+        val tuicRound = com.example.data.local.ProfileEntity.fromDomain(tuic).toDomain()
+        assertEquals(ProxyProtocol.TUIC, tuicRound.protocol)
+        assertEquals("cubic", tuicRound.tuicCongestionControl)
+        assertEquals("quic", tuicRound.tuicUdpRelayMode)
+        assertTrue(tuicRound.tuicZeroRttHandshake)
+        assertTrue(tuicRound.tuicDisableSni)
+        assertEquals(12000, tuicRound.tuicHeartbeatIntervalMs)
+
+        // Verify Room in-memory DB opens at version 4 cleanly
+        val ctx = androidx.test.core.app.ApplicationProvider.getApplicationContext<android.content.Context>()
+        val db = androidx.room.Room.inMemoryDatabaseBuilder(ctx, com.example.data.local.NekoDatabase::class.java)
+            .allowMainThreadQueries()
+            .build()
+        try {
+            assertEquals(4, db.openHelper.readableDatabase.version)
+            val insertedHy2Id = kotlinx.coroutines.runBlocking {
+                db.profileDao().insert(com.example.data.local.ProfileEntity.fromDomain(hy2))
+            }
+            val loaded = kotlinx.coroutines.runBlocking { db.profileDao().getById(insertedHy2Id) }?.toDomain()
+            assertNotNull(loaded)
+            assertEquals("salamander", loaded!!.hy2Obfs)
+            assertEquals("30000-35000", loaded.hy2Ports)
+        } finally {
+            db.close()
+        }
+    }
 }

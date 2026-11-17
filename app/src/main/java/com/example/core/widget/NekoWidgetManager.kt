@@ -54,11 +54,17 @@ object NekoWidgetManager {
     var lastKnownLanguage: com.example.core.model.AppLanguage = com.example.core.model.AppLanguage.SYSTEM
         private set
 
-    fun formatProtocolLabel(profile: ProxyProfile): String = buildString {
-        append(profile.protocol.displayName)
-        if (profile.isReality) append(" · REALITY")
-        else if (profile.security.wireValue != "none") append(" · ${profile.security.displayName}")
-        append(" · ${profile.transport.wireValue.uppercase()}")
+    fun formatProtocolLabel(profile: ProxyProfile): String = when (profile.protocol) {
+        com.example.core.model.ProxyProtocol.HYSTERIA2 -> "Hysteria 2 · QUIC · TLS"
+        com.example.core.model.ProxyProtocol.TUIC -> "TUIC v5 · QUIC · TLS"
+        com.example.core.model.ProxyProtocol.SSH -> "SSH"
+        com.example.core.model.ProxyProtocol.WIREGUARD -> "WireGuard · UDP"
+        else -> buildString {
+            append(profile.protocol.displayName)
+            if (profile.isReality) append(" · REALITY")
+            else if (profile.security.wireValue != "none") append(" · ${profile.security.displayName}")
+            append(" · ${profile.transport.wireValue.uppercase()}")
+        }
     }
 
     fun buildStartServiceIntent(

@@ -164,6 +164,9 @@ object UriParser {
                 trimmed.startsWith("vmess://", ignoreCase = true) -> parseVmess(trimmed, groupId)
                 trimmed.startsWith("trojan://", ignoreCase = true) -> parseTrojan(trimmed, groupId)
                 trimmed.startsWith("ss://", ignoreCase = true) -> parseShadowsocks(trimmed, groupId)
+                trimmed.startsWith("hysteria2://", ignoreCase = true) ||
+                    trimmed.startsWith("hy2://", ignoreCase = true) -> parseHysteria2(trimmed, groupId)
+                trimmed.startsWith("tuic://", ignoreCase = true) -> parseTuic(trimmed, groupId)
                 trimmed.startsWith("socks://", ignoreCase = true) ||
                     trimmed.startsWith("socks5://", ignoreCase = true) -> parseSocks(trimmed, groupId)
                 trimmed.startsWith("http://", ignoreCase = true) ||
@@ -499,6 +502,135 @@ object UriParser {
         )
     }
 
+    private fun parseHysteria2(link: String, groupId: Long): ProxyProfile {
+        val normalized = if (link.startsWith("hy2://", ignoreCase = true)) {
+            "hysteria2://" + link.substring(6)
+        } else {
+            link
+        }
+        val uri = Uri.parse(normalized)
+        val host = uri.host.orEmpty()
+        val port = uri.port.takeIf { it > 0 } ?: 443
+        val rawUserInfo = uri.userInfo.orEmpty().let { urlDecode(it) }
+        val password = rawUserInfo.ifBlank { uri.getQueryParameter("auth").orEmpty() }
+        val name = uri.fragment?.let { urlDecode(it) }.orEmpty()
+
+        val sni = uri.getQueryParameter("sni") ?: uri.getQueryParameter("peer") ?: ""
+        val alpn = uri.getQueryParameter("alpn").orEmpty()
+        val fp = uri.getQueryParameter("fp").orEmpty()
+        val insecure = (uri.getQueryParameter("insecure")
+            ?: uri.getQueryParameter("allowInsecure")
+            ?: uri.getQueryParameter("allow_insecure"))
+            ?.let { it == "1" || it.equals("true", ignoreCase = true) } ?: false
+        val obfsRaw = uri.getQueryParameter("obfs").orEmpty().lowercase()
+        val obfs = if (obfsRaw == "none") "" else obfsRaw
+        val obfsPassword = uri.getQueryParameter("obfs-password")
+            ?: uri.getQueryParameter("obfs_password")
+            ?: ""
+        val upMbps = parseBandwidthMbps(uri.getQueryParameter("upmbps") ?: uri.getQueryParameter("up"))
+        val downMbps = parseBandwidthMbps(uri.getQueryParameter("downmbps") ?: uri.getQueryParameter("down"))
+        val mport = uri.getQueryParameter("mport").orEmpty()
+        val hopInterval = (uri.getQueryParameter("hop-interval")
+            ?: uri.getQueryParameter("hopinterval")
+            ?: uri.getQueryParameter("hop_interval")
+            ?: uri.getQueryParameter("interval"))
+            ?.trim()?.toIntOrNull()?.coerceIn(5, 3600) ?: 30
+        val pinSha256 = uri.getQueryParameter("pinSHA256")
+            ?: uri.getQueryParameter("pin_sha256")
+            ?: ""
+
+        return ProxyProfile(
+            groupId = groupId,
+            name = name.ifBlank { "Hy2 $host:$port" },
+            protocol = ProxyProtocol.HYSTERIA2,
+            serverAddress = host,
+            serverPort = port,
+            password = password,
+            flow = FlowType.NONE,
+            transport = TransportType.TCP,
+            security = SecurityType.TLS,
+            sni = sni,
+            alpn = alpn,
+            fingerprint = fp,
+            allowInsecure = insecure,
+            hy2Obfs = obfs,
+            hy2ObfsPassword = obfsPassword,
+            hy2UpMbps = upMbps,
+            hy2DownMbps = downMbps,
+            hy2Ports = mport,
+            hy2HopInterval = hopInterval,
+            hy2PinSha256 = pinSha256,
+        )
+    }
+
+    private fun parseTuic(link: String, groupId: Long): ProxyProfile {
+        val uri = Uri.parse(link)
+        val host = uri.host.orEmpty()
+        val port = uri.port.takeIf { it > 0 } ?: 443
+        val userInfo = uri.userInfo.orEmpty()
+        val (uuid, passFromUserInfo) = if (userInfo.contains(":")) {
+            urlDecode(userInfo.substringBefore(":")) to urlDecode(userInfo.substringAfter(":"))
+        } else {
+            urlDecode(userInfo) to ""
+        }
+        val password = passFromUserInfo.ifBlank { uri.getQueryParameter("password").orEmpty() }
+        val name = uri.fragment?.let { urlDecode(it) }.orEmpty()
+
+        val congestion = (uri.getQueryParameter("congestion_control")
+            ?: uri.getQueryParameter("congestion")
+            ?: "bbr").lowercase()
+        val udpMode = (uri.getQueryParameter("udp_relay_mode") ?: "native").lowercase()
+            .let { if (it == "quic") "quic" else "native" }
+        val sni = uri.getQueryParameter("sni").orEmpty()
+        val alpn = uri.getQueryParameter("alpn").orEmpty()
+        val fp = uri.getQueryParameter("fp").orEmpty()
+        val insecure = (uri.getQueryParameter("allow_insecure")
+            ?: uri.getQueryParameter("allowInsecure")
+            ?: uri.getQueryParameter("insecure"))
+            ?.let { it == "1" || it.equals("true", ignoreCase = true) } ?: false
+        val disableSni = (uri.getQueryParameter("disable_sni") ?: uri.getQueryParameter("disableSni"))
+            ?.let { it == "1" || it.equals("true", ignoreCase = true) } ?: false
+        val zeroRtt = (uri.getQueryParameter("zero_rtt_handshake")
+            ?: uri.getQueryParameter("reduce_rtt")
+            ?: uri.getQueryParameter("0rtt"))
+            ?.let { it == "1" || it.equals("true", ignoreCase = true) } ?: false
+        val heartbeat = (uri.getQueryParameter("heartbeat") ?: uri.getQueryParameter("heartbeat_interval"))
+            ?.trim()?.toIntOrNull()?.coerceIn(1000, 120_000) ?: 10000
+
+        return ProxyProfile(
+            groupId = groupId,
+            name = name.ifBlank { "TUIC $host:$port" },
+            protocol = ProxyProtocol.TUIC,
+            serverAddress = host,
+            serverPort = port,
+            uuid = uuid,
+            password = password,
+            flow = FlowType.NONE,
+            transport = TransportType.TCP,
+            security = SecurityType.TLS,
+            sni = sni,
+            alpn = alpn,
+            fingerprint = fp,
+            allowInsecure = insecure,
+            tuicCongestionControl = congestion.ifBlank { "bbr" },
+            tuicUdpRelayMode = udpMode,
+            tuicZeroRttHandshake = zeroRtt,
+            tuicDisableSni = disableSni,
+            tuicHeartbeatIntervalMs = heartbeat,
+        )
+    }
+
+    private fun parseBandwidthMbps(raw: String?): Int {
+        if (raw.isNullOrBlank()) return 0
+        val clean = raw.trim().lowercase()
+        val num = Regex("(\\d+)").find(clean)?.groupValues?.getOrNull(1)?.toIntOrNull() ?: return 0
+        return if (clean.contains("gbps") || clean.contains("g")) {
+            (num * 1000).coerceAtLeast(0)
+        } else {
+            num.coerceAtLeast(0)
+        }
+    }
+
     private fun parseRawJsonProfile(jsonText: String, groupId: Long): ProxyProfile? {
         return runCatching {
             val root = JSONObject(jsonText)
@@ -536,6 +668,8 @@ object UriParser {
                 val label = if (profile.name.isNotBlank()) "#${urlEncode(profile.name)}" else ""
                 "ss://$creds@${profile.serverAddress}:${profile.serverPort}$label"
             }
+            ProxyProtocol.HYSTERIA2 -> buildHysteria2Uri(profile)
+            ProxyProtocol.TUIC -> buildTuicUri(profile)
             ProxyProtocol.SOCKS5 -> {
                 val auth = if (profile.username.isNotBlank()) {
                     "${urlEncode(profile.username)}:${urlEncode(profile.password)}@"
@@ -645,6 +779,58 @@ object UriParser {
         }
         val fragment = if (p.name.isNotBlank()) "#${urlEncode(p.name)}" else ""
         return "$scheme://${urlEncode(user)}@$hostPart:${p.serverPort}?$query$fragment"
+    }
+
+    private fun buildHysteria2Uri(p: ProxyProfile): String {
+        val params = linkedMapOf<String, String>()
+        if (p.sni.isNotBlank()) params["sni"] = p.sni
+        if (p.alpn.isNotBlank()) params["alpn"] = p.alpn
+        if (p.fingerprint.isNotBlank()) params["fp"] = p.fingerprint
+        if (p.allowInsecure) params["insecure"] = "1"
+        if (p.hy2Obfs.isNotBlank()) params["obfs"] = p.hy2Obfs
+        if (p.hy2ObfsPassword.isNotBlank()) params["obfs-password"] = p.hy2ObfsPassword
+        if (p.hy2UpMbps > 0) params["upmbps"] = p.hy2UpMbps.toString()
+        if (p.hy2DownMbps > 0) params["downmbps"] = p.hy2DownMbps.toString()
+        if (p.hy2Ports.isNotBlank()) params["mport"] = p.hy2Ports
+        if (p.hy2Ports.isNotBlank() && p.hy2HopInterval != 30) params["hop-interval"] = p.hy2HopInterval.toString()
+        if (p.hy2PinSha256.isNotBlank()) params["pinSHA256"] = p.hy2PinSha256
+        val query = if (params.isNotEmpty()) {
+            "?" + params.entries.joinToString("&") { (k, v) -> "${urlEncode(k)}=${urlEncode(v)}" }
+        } else ""
+        val hostPart = if (p.serverAddress.contains(":") && !p.serverAddress.startsWith("[")) {
+            "[${p.serverAddress}]"
+        } else {
+            p.serverAddress
+        }
+        val authPart = if (p.password.isNotBlank()) "${urlEncode(p.password)}@" else ""
+        val fragment = if (p.name.isNotBlank()) "#${urlEncode(p.name)}" else ""
+        return "hysteria2://$authPart$hostPart:${p.serverPort}$query$fragment"
+    }
+
+    private fun buildTuicUri(p: ProxyProfile): String {
+        val params = linkedMapOf<String, String>()
+        params["congestion_control"] = p.tuicCongestionControl.ifBlank { "bbr" }
+        params["udp_relay_mode"] = p.tuicUdpRelayMode.ifBlank { "native" }
+        if (p.alpn.isNotBlank()) params["alpn"] = p.alpn
+        if (p.sni.isNotBlank()) params["sni"] = p.sni
+        if (p.fingerprint.isNotBlank()) params["fp"] = p.fingerprint
+        if (p.allowInsecure) params["allow_insecure"] = "1"
+        if (p.tuicDisableSni) params["disable_sni"] = "1"
+        if (p.tuicZeroRttHandshake) params["zero_rtt_handshake"] = "1"
+        if (p.tuicHeartbeatIntervalMs != 10000) params["heartbeat"] = p.tuicHeartbeatIntervalMs.toString()
+        val query = params.entries.joinToString("&") { (k, v) -> "${urlEncode(k)}=${urlEncode(v)}" }
+        val hostPart = if (p.serverAddress.contains(":") && !p.serverAddress.startsWith("[")) {
+            "[${p.serverAddress}]"
+        } else {
+            p.serverAddress
+        }
+        val userPart = if (p.password.isNotBlank()) {
+            "${urlEncode(p.uuid)}:${urlEncode(p.password)}"
+        } else {
+            urlEncode(p.uuid)
+        }
+        val fragment = if (p.name.isNotBlank()) "#${urlEncode(p.name)}" else ""
+        return "tuic://$userPart@$hostPart:${p.serverPort}?$query$fragment"
     }
 
     private fun buildVmessUri(p: ProxyProfile): String {

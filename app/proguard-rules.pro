@@ -19,3 +19,7 @@
 # If you keep the line number information, uncomment this to
 # hide the original source file name.
 #-renamesourcefileattribute SourceFile
+
+# Preserve Kwik & Agent15 internals used for TUIC v5 TLS-Exporter & custom SNI reflection
+-keep class tech.kwik.** { *; }
+-dontwarn tech.kwik.**

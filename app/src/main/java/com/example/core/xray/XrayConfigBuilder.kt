@@ -51,6 +51,7 @@ object XrayConfigBuilder {
         rules: List<RoutingRule>,
         includeTunInbound: Boolean = settings.serviceMode == ServiceMode.VPN,
         sshLocalBridgePort: Int = 0,
+        tuicLocalBridgePort: Int = 0,
         hasGeoIp: Boolean = true,
         hasGeoSite: Boolean = true,
     ): String {
@@ -209,7 +210,7 @@ object XrayConfigBuilder {
             }
 
             putJsonArray("outbounds") {
-                add(buildPrimaryOutbound(profile, settings, sshLocalBridgePort))
+                add(buildPrimaryOutbound(profile, settings, sshLocalBridgePort, tuicLocalBridgePort))
 
                 if (settings.fragmentEnabled) {
                     addJsonObject {
@@ -371,6 +372,7 @@ object XrayConfigBuilder {
         profile: ProxyProfile,
         settings: XraySettings,
         sshLocalBridgePort: Int = 0,
+        tuicLocalBridgePort: Int = 0,
     ): JsonObject {
         return buildJsonObject {
             put("tag", "proxy")
@@ -489,6 +491,29 @@ object XrayConfigBuilder {
                     }
                     if (profile.security != SecurityType.NONE) {
                         put("streamSettings", buildStreamSettings(profile, settings))
+                    }
+                }
+
+                ProxyProtocol.HYSTERIA2 -> {
+                    put("protocol", "hysteria")
+                    putJsonObject("settings") {
+                        put("version", 2)
+                        put("address", profile.serverAddress)
+                        put("port", profile.serverPort)
+                    }
+                    put("streamSettings", buildHysteria2StreamSettings(profile, settings))
+                }
+
+                ProxyProtocol.TUIC -> {
+                    val bridgePort = if (tuicLocalBridgePort > 0) tuicLocalBridgePort else settings.socksPort + 101
+                    put("protocol", "socks")
+                    putJsonObject("settings") {
+                        putJsonArray("servers") {
+                            addJsonObject {
+                                put("address", "127.0.0.1")
+                                put("port", bridgePort)
+                            }
+                        }
                     }
                 }
 
@@ -671,6 +696,79 @@ object XrayConfigBuilder {
         }
     }
 
+    private fun buildHysteria2StreamSettings(profile: ProxyProfile, settings: XraySettings): JsonObject {
+        return buildJsonObject {
+            put("network", "hysteria")
+            put("security", "tls")
+
+            putJsonObject("tlsSettings") {
+                val sni = profile.sni.ifBlank { profile.serverAddress }
+                if (sni.isNotBlank()) put("serverName", sni)
+                if (profile.fingerprint.isNotBlank()) put("fingerprint", profile.fingerprint)
+                val alpns = splitItems(profile.alpn).ifEmpty { listOf("h3") }
+                putJsonArray("alpn") { alpns.forEach { add(it) } }
+                if (profile.allowInsecure || settings.globalAllowInsecure) {
+                    put("allowInsecure", true)
+                }
+                if (profile.hy2PinSha256.isNotBlank()) {
+                    put("pinnedPeerCertSha256", profile.hy2PinSha256.trim())
+                }
+            }
+
+            putJsonObject("hysteriaSettings") {
+                put("version", 2)
+                if (profile.password.isNotBlank()) {
+                    put("auth", profile.password)
+                }
+            }
+
+            val hasSalamander = profile.hy2Obfs.equals("salamander", ignoreCase = true) &&
+                profile.hy2ObfsPassword.isNotBlank()
+            val hasUdpHop = profile.hy2Ports.isNotBlank()
+            val hasBrutal = profile.hy2UpMbps > 0 || profile.hy2DownMbps > 0
+            if (hasSalamander || hasUdpHop || hasBrutal) {
+                putJsonObject("finalmask") {
+                    if (hasSalamander || hasUdpHop) {
+                        putJsonArray("udp") {
+                            if (hasSalamander) {
+                                addJsonObject {
+                                    put("type", "salamander")
+                                    putJsonObject("settings") {
+                                        put("password", profile.hy2ObfsPassword)
+                                    }
+                                }
+                            }
+                            if (hasUdpHop) {
+                                addJsonObject {
+                                    put("type", "udphop")
+                                    putJsonObject("settings") {
+                                        put("port", profile.hy2Ports.trim())
+                                        put("interval", profile.hy2HopInterval.coerceIn(5, 3600).toString())
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if (hasBrutal) {
+                        putJsonObject("quicParams") {
+                            put("congestion", "brutal")
+                            if (profile.hy2UpMbps > 0) {
+                                put("brutalUp", "${profile.hy2UpMbps} mbps")
+                            }
+                            if (profile.hy2DownMbps > 0) {
+                                put("brutalDown", "${profile.hy2DownMbps} mbps")
+                            }
+                        }
+                    }
+                }
+            }
+
+            putJsonObject("sockopt") {
+                put("domainStrategy", settings.ipv6Mode.wireStrategy)
+            }
+        }
+    }
+
     fun buildRealityServerSnippet(
         uuid: String,
         privateKey: String,
@@ -754,6 +852,32 @@ object XrayConfigBuilder {
                     issues += ConfigValidationIssue(true, "SSH Private Key (PEM / OpenSSH) is required.")
                 }
                 SshAuthType.NONE -> Unit
+            }
+        }
+        if (profile.protocol == ProxyProtocol.HYSTERIA2) {
+            if (profile.password.isBlank()) {
+                issues += ConfigValidationIssue(false, "Hysteria 2 auth password is empty.")
+            }
+            if (profile.hy2Obfs.equals("salamander", ignoreCase = true) && profile.hy2ObfsPassword.isBlank()) {
+                issues += ConfigValidationIssue(true, "Salamander obfs password is required when Salamander obfuscation is enabled.")
+            }
+            if (profile.sni.isBlank() && isIpLiteral(profile.serverAddress.trim()) &&
+                !profile.allowInsecure && profile.hy2PinSha256.isBlank()
+            ) {
+                issues += ConfigValidationIssue(
+                    false,
+                    "Connecting by IP without SNI or pinSHA256 usually requires 'Allow Insecure TLS' if the certificate doesn't match the IP.",
+                )
+            }
+        }
+        if (profile.protocol == ProxyProtocol.TUIC) {
+            if (profile.uuid.isBlank()) {
+                issues += ConfigValidationIssue(true, "UUID is required for TUIC v5.")
+            } else if (runCatching { java.util.UUID.fromString(profile.uuid.trim()) }.isFailure) {
+                issues += ConfigValidationIssue(true, "TUIC v5 UUID must be a valid RFC 4122 UUID.")
+            }
+            if (profile.password.isBlank()) {
+                issues += ConfigValidationIssue(false, "TUIC v5 password is empty.")
             }
         }
 

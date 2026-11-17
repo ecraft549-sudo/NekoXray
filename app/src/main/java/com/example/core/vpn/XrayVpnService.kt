@@ -341,6 +341,8 @@ class XrayVpnService : VpnService() {
     private var kotlinTunForwarder: KotlinTunForwarder? = null
     @Volatile
     private var sshTunnelBridge: SshTunnelBridge? = null
+    @Volatile
+    private var tuicTunnelBridge: TuicTunnelBridge? = null
 
     private data class PhysicalNetworkSnapshot(
         val networkHandle: Long,
@@ -754,6 +756,7 @@ class XrayVpnService : VpnService() {
 
                     runCatching {
                         sshTunnelBridge?.reconnectSession("network handoff to ${initialSnapshot.label}")
+                        tuicTunnelBridge?.reconnectSession("network handoff to ${initialSnapshot.label}")
                         val hasNativeCore = XrayEngineState.state.value.isNativeCoreLinked
 
                         if (hasNativeCore) {
@@ -1246,22 +1249,38 @@ class XrayVpnService : VpnService() {
 
                     if (!proxyOnly) {
                         val effectiveMtu = mtu.coerceIn(1280, 9000)
-                        val effectiveConfigJson = if (profile.protocol == ProxyProtocol.SSH) {
-                            val geo = XrayAssetHelper.currentStatus(this@XrayVpnService)
-                            val bridge = SshTunnelBridge(profile = profile, vpnService = this@XrayVpnService)
-                            val bridgePort = bridge.start()
-                            sshTunnelBridge = bridge
-                            XrayConfigBuilder.buildConfigJson(
-                                profile = profile,
-                                settings = settings,
-                                rules = rules,
-                                includeTunInbound = true,
-                                sshLocalBridgePort = bridgePort,
-                                hasGeoIp = geo.hasGeoIp,
-                                hasGeoSite = geo.hasGeoSite,
-                            )
-                        } else {
-                            configJson
+                        val effectiveConfigJson = when (profile.protocol) {
+                            ProxyProtocol.SSH -> {
+                                val geo = XrayAssetHelper.currentStatus(this@XrayVpnService)
+                                val bridge = SshTunnelBridge(profile = profile, vpnService = this@XrayVpnService)
+                                val bridgePort = bridge.start()
+                                sshTunnelBridge = bridge
+                                XrayConfigBuilder.buildConfigJson(
+                                    profile = profile,
+                                    settings = settings,
+                                    rules = rules,
+                                    includeTunInbound = true,
+                                    sshLocalBridgePort = bridgePort,
+                                    hasGeoIp = geo.hasGeoIp,
+                                    hasGeoSite = geo.hasGeoSite,
+                                )
+                            }
+                            ProxyProtocol.TUIC -> {
+                                val geo = XrayAssetHelper.currentStatus(this@XrayVpnService)
+                                val bridge = TuicTunnelBridge(profile = profile, vpnService = this@XrayVpnService)
+                                val bridgePort = bridge.start()
+                                tuicTunnelBridge = bridge
+                                XrayConfigBuilder.buildConfigJson(
+                                    profile = profile,
+                                    settings = settings,
+                                    rules = rules,
+                                    includeTunInbound = true,
+                                    tuicLocalBridgePort = bridgePort,
+                                    hasGeoIp = geo.hasGeoIp,
+                                    hasGeoSite = geo.hasGeoSite,
+                                )
+                            }
+                            else -> configJson
                         }
 
                         val spec = ActiveTunnelSpec(
@@ -1331,22 +1350,38 @@ class XrayVpnService : VpnService() {
                         )
                         NekoWidgetManager.refreshAll(this@XrayVpnService)
                     } else {
-                        val effectiveConfigJson = if (profile.protocol == ProxyProtocol.SSH) {
-                            val geo = XrayAssetHelper.currentStatus(this@XrayVpnService)
-                            val bridge = SshTunnelBridge(profile = profile, vpnService = this@XrayVpnService)
-                            val bridgePort = bridge.start()
-                            sshTunnelBridge = bridge
-                            XrayConfigBuilder.buildConfigJson(
-                                profile = profile,
-                                settings = settings,
-                                rules = rules,
-                                includeTunInbound = false,
-                                sshLocalBridgePort = bridgePort,
-                                hasGeoIp = geo.hasGeoIp,
-                                hasGeoSite = geo.hasGeoSite,
-                            )
-                        } else {
-                            configJson
+                        val effectiveConfigJson = when (profile.protocol) {
+                            ProxyProtocol.SSH -> {
+                                val geo = XrayAssetHelper.currentStatus(this@XrayVpnService)
+                                val bridge = SshTunnelBridge(profile = profile, vpnService = this@XrayVpnService)
+                                val bridgePort = bridge.start()
+                                sshTunnelBridge = bridge
+                                XrayConfigBuilder.buildConfigJson(
+                                    profile = profile,
+                                    settings = settings,
+                                    rules = rules,
+                                    includeTunInbound = false,
+                                    sshLocalBridgePort = bridgePort,
+                                    hasGeoIp = geo.hasGeoIp,
+                                    hasGeoSite = geo.hasGeoSite,
+                                )
+                            }
+                            ProxyProtocol.TUIC -> {
+                                val geo = XrayAssetHelper.currentStatus(this@XrayVpnService)
+                                val bridge = TuicTunnelBridge(profile = profile, vpnService = this@XrayVpnService)
+                                val bridgePort = bridge.start()
+                                tuicTunnelBridge = bridge
+                                XrayConfigBuilder.buildConfigJson(
+                                    profile = profile,
+                                    settings = settings,
+                                    rules = rules,
+                                    includeTunInbound = false,
+                                    tuicLocalBridgePort = bridgePort,
+                                    hasGeoIp = geo.hasGeoIp,
+                                    hasGeoSite = geo.hasGeoSite,
+                                )
+                            }
+                            else -> configJson
                         }
 
                         activeTunnelSpec = ActiveTunnelSpec(
@@ -1652,6 +1687,8 @@ class XrayVpnService : VpnService() {
         localProxyServer = null
         runCatching { sshTunnelBridge?.stop() }
         sshTunnelBridge = null
+        runCatching { tuicTunnelBridge?.stop() }
+        tuicTunnelBridge = null
         closeAllTunDescriptors()
         val ctrl = coreControllerInstance
         coreControllerInstance = null
@@ -1675,6 +1712,8 @@ class XrayVpnService : VpnService() {
         stopNativeCoreAndTunSafely()
         runCatching { sshTunnelBridge?.stop() }
         sshTunnelBridge = null
+        runCatching { tuicTunnelBridge?.stop() }
+        tuicTunnelBridge = null
     }
 
     private fun stopTunnel() {

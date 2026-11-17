@@ -259,6 +259,7 @@ dependencies {
   // implementation(libs.moshi.kotlin)
   implementation(libs.okhttp)
   implementation(libs.mwiede.jsch)
+  implementation(libs.tech.kwik)
   // implementation(libs.play.services.location)
   // implementation(libs.retrofit)
   implementation(libs.zxing.core)

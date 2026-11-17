@@ -14,7 +14,7 @@
     <string name="core_version_badge">Xray-core v26.10.31 · REALITY</string>
     <string name="empty_profiles_title">No Xray Profiles Yet</string>
     <string name="empty_profiles_subtitle">Import a vless:// REALITY link from clipboard, add a subscription group, or create a profile manually.</string>
-    <string name="error_invalid_uri">Could not parse proxy URI. Supported: vless://, vmess://, trojan://, ss://, socks://, ssh://, wg://</string>
+    <string name="error_invalid_uri">Could not parse proxy URI. Supported: vless://, vmess://, trojan://, hysteria2://, tuic://, ss://, socks://, ssh://, wg://</string>
     <string name="status_widget_label">NekoXray Status</string>
     <string name="status_widget_description">Live VPN status, active REALITY node, speed telemetry, and quick toggle</string>
     <string name="compact_widget_label">NekoXray Switch</string>

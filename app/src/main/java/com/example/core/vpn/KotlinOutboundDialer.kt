@@ -43,7 +43,16 @@ class KotlinOutboundDialer(
     private val loggedUnsupportedNotice = AtomicBoolean(false)
 
     fun requiresNativeXrayCore(): Boolean {
-        if (profile.protocol in listOf(ProxyProtocol.VMESS, ProxyProtocol.SHADOWSOCKS, ProxyProtocol.SSH, ProxyProtocol.WIREGUARD, ProxyProtocol.CUSTOM_JSON)) {
+        if (profile.protocol in listOf(
+                ProxyProtocol.VMESS,
+                ProxyProtocol.SHADOWSOCKS,
+                ProxyProtocol.HYSTERIA2,
+                ProxyProtocol.TUIC,
+                ProxyProtocol.SSH,
+                ProxyProtocol.WIREGUARD,
+                ProxyProtocol.CUSTOM_JSON,
+            )
+        ) {
             return true
         }
         if (profile.security == SecurityType.REALITY) return true

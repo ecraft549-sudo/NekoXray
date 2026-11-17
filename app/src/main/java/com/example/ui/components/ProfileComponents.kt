@@ -279,30 +279,73 @@ fun ProxyProfileCard(
                     )
                 }
 
-                if (profile.protocol == ProxyProtocol.SSH) {
-                    val authBadge = when (profile.sshAuthType) {
-                        SshAuthType.PRIVATE_KEY -> "SSH-KEY"
-                        SshAuthType.PASSWORD -> "SSH-PASS"
-                        SshAuthType.NONE -> "SSH-NONE"
-                    }
-                    TagPill(
-                        text = authBadge,
-                        containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                    )
-                    if (profile.sshPublicKey.isNotBlank()) {
+                when (profile.protocol) {
+                    ProxyProtocol.SSH -> {
+                        val authBadge = when (profile.sshAuthType) {
+                            SshAuthType.PRIVATE_KEY -> "SSH-KEY"
+                            SshAuthType.PASSWORD -> "SSH-PASS"
+                            SshAuthType.NONE -> "SSH-NONE"
+                        }
                         TagPill(
-                            text = "HOST-PIN",
-                            containerColor = MaterialTheme.colorScheme.tertiary.copy(alpha = 0.16f),
-                            contentColor = MaterialTheme.colorScheme.tertiary,
+                            text = authBadge,
+                            containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                            contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                        )
+                        if (profile.sshPublicKey.isNotBlank()) {
+                            TagPill(
+                                text = "HOST-PIN",
+                                containerColor = MaterialTheme.colorScheme.tertiary.copy(alpha = 0.16f),
+                                contentColor = MaterialTheme.colorScheme.tertiary,
+                            )
+                        }
+                    }
+                    ProxyProtocol.HYSTERIA2 -> {
+                        TagPill(
+                            text = "QUIC",
+                            containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                            contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        if (profile.hy2Obfs.equals("salamander", ignoreCase = true)) {
+                            TagPill(
+                                text = "SALAMANDER",
+                                containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                                contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                            )
+                        }
+                        if (profile.hy2Ports.isNotBlank()) {
+                            TagPill(
+                                text = "HOP:${profile.hy2Ports}",
+                                containerColor = MaterialTheme.colorScheme.tertiary.copy(alpha = 0.16f),
+                                contentColor = MaterialTheme.colorScheme.tertiary,
+                            )
+                        }
+                    }
+                    ProxyProtocol.TUIC -> {
+                        TagPill(
+                            text = "QUIC",
+                            containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                            contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        TagPill(
+                            text = profile.tuicCongestionControl.ifBlank { "bbr" }.uppercase(),
+                            containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                            contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                        )
+                        if (profile.tuicZeroRttHandshake) {
+                            TagPill(
+                                text = "0-RTT",
+                                containerColor = MaterialTheme.colorScheme.tertiary.copy(alpha = 0.16f),
+                                contentColor = MaterialTheme.colorScheme.tertiary,
+                            )
+                        }
+                    }
+                    else -> {
+                        TagPill(
+                            text = profile.transport.wireValue.uppercase(),
+                            containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                            contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
-                } else {
-                    TagPill(
-                        text = profile.transport.wireValue.uppercase(),
-                        containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                        contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
                 }
 
                 if (profile.flow != FlowType.NONE) {
@@ -327,13 +370,17 @@ fun ProxyProfileCard(
 
 @Composable
 private fun LatencyBadge(latencyMs: Int?, tlsLatencyMs: Int?) {
-    if (latencyMs == null) return
+    val primaryMs = latencyMs ?: tlsLatencyMs ?: return
     val color = when {
-        latencyMs < 150 -> SignalEmerald
-        latencyMs < 350 -> SignalAmber
+        primaryMs < 150 -> SignalEmerald
+        primaryMs < 350 -> SignalAmber
         else -> SignalCrimson
     }
-    val label = if (tlsLatencyMs != null) "${latencyMs}ms · TLS ${tlsLatencyMs}ms" else "${latencyMs}ms"
+    val label = when {
+        latencyMs != null && tlsLatencyMs != null -> "${latencyMs}ms · TLS ${tlsLatencyMs}ms"
+        latencyMs != null -> "${latencyMs}ms"
+        else -> "QUIC ${tlsLatencyMs}ms"
+    }
     Surface(
         color = color.copy(alpha = 0.14f),
         contentColor = color,

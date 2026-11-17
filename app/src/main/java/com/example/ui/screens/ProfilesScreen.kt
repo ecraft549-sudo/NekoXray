@@ -494,6 +494,22 @@ private fun EngineStatusBanner(
                             },
                         )
                         DropdownMenuItem(
+                            text = { Text(strings.newHysteria2) },
+                            leadingIcon = { Icon(Icons.Default.Speed, null) },
+                            onClick = {
+                                onToggleAddMenu(false)
+                                onCreateProfile(ProxyProtocol.HYSTERIA2)
+                            },
+                        )
+                        DropdownMenuItem(
+                            text = { Text(strings.newTuic) },
+                            leadingIcon = { Icon(Icons.Default.Speed, null) },
+                            onClick = {
+                                onToggleAddMenu(false)
+                                onCreateProfile(ProxyProtocol.TUIC)
+                            },
+                        )
+                        DropdownMenuItem(
                             text = { Text(strings.newWireGuard) },
                             leadingIcon = { Icon(Icons.Default.Dns, null) },
                             onClick = {

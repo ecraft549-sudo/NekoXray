@@ -233,7 +233,7 @@ class NekoViewModel(application: Application) : AndroidViewModel(application) {
                     _events.emit("Imported $profileCount profile(s) into group.")
                 }
                 else -> {
-                    _events.emit("No valid subscription URL or vless://, vmess://, trojan://, ss://, socks://, ssh://, wg:// or Xray JSON found.")
+                    _events.emit("No valid subscription URL or vless://, vmess://, trojan://, hysteria2://, tuic://, ss://, socks://, ssh://, wg:// or Xray JSON found.")
                 }
             }
         }
@@ -278,7 +278,7 @@ class NekoViewModel(application: Application) : AndroidViewModel(application) {
             val (tcp, tls) = repo.testProfileLatency(profile)
             transient.update { it.copy(testingProfileIds = it.testingProfileIds - profile.id) }
             val msg = if (tcp != null || tls != null) {
-                val tcpInfo = if (tcp != null) "TCP ${tcp}ms" else "TCP --"
+                val tcpInfo = if (tcp != null) "TCP ${tcp}ms" else "QUIC"
                 val tlsInfo = if (tls != null) " · Xray ${tls}ms" else ""
                 "${profile.displayTitle()}: $tcpInfo$tlsInfo"
             } else {
