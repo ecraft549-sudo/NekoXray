@@ -22,7 +22,7 @@
   <a href="#-скриншоты">Скриншоты</a> •
   <a href="#-бесшовное-переключение-сетей-и-always-on-vpn">Сеть и Always-On</a> •
   <a href="#-архитектура-проекта">Архитектура</a> •
-  <a href="#-сборка-из-исходников">Сборка и CI</a> •
+  <a href="#-сборка-из-исходников">Сборка</a> •
   <a href="#-лицензия">Лицензия</a>
 </p>
 
@@ -193,24 +193,6 @@ gradle :app:testDebugUnitTest --console=plain
 | `NekoXray-<tag>-x86.apk` | 32-бит x86 (`i686`) | Старые 32-битные эмуляторы x86 |
 | `NekoXray-<tag>-universal.apk` | Все архитектуры в одном APK | Универсальный установщик |
 | `NekoXray-<tag>.aab` | Android App Bundle | Публикация в Google Play / Play Creator Program |
-
-<details>
-<summary><b>🔐 Автоматический выпуск GitHub Releases и лендинг GitHub Pages (нажмите, чтобы развернуть)</b></summary>
-
-<br/>
-
-#### Публикация релизов через GitHub Actions
-Отправьте тег версии (`v*`, например `v1.0.0`) или запустите workflow **Release Multi-ABI APKs** вручную во вкладке **Actions** — пайплайн автоматически выполнит тесты, соберёт APK под все архитектуры, сформирует `SHA256SUMS.txt` и создаст GitHub Release.
-
-Для подписи релизов собственным ключом (`alias: upload`) добавьте в **GitHub Repository Secrets**:
-- `RELEASE_KEYSTORE_BASE64`
-- `RELEASE_STORE_PASSWORD`
-- `RELEASE_KEY_PASSWORD`
-
-#### Мультиязычный сайт загрузки (`docs/index.html`)
-В каталоге `docs/` расположен лендинг, который автоматически запрашивает последний релиз через GitHub API, определяет архитектуру процессора посетителя, отображает `SHA256SUMS.txt` и поддерживает переключение **RU / EN / ZH-CN / ZH-TW / FA / ES**. Включается в **Settings → Pages → Source: GitHub Actions** (`.github/workflows/pages.yml`).
-
-</details>
 
 ---
 

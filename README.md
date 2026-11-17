@@ -22,7 +22,7 @@
   <a href="#-screenshots">Screenshots</a> •
   <a href="#-network-resilience--always-on-vpn">Network Engine</a> •
   <a href="#-architecture">Architecture</a> •
-  <a href="#-building-from-source">Build & CI</a> •
+  <a href="#-building-from-source">Build</a> •
   <a href="#-license">License</a>
 </p>
 
@@ -193,24 +193,6 @@ gradle :app:testDebugUnitTest --console=plain
 | `NekoXray-<tag>-x86.apk` | 32-bit x86 (`i686`) | Legacy x86 emulators |
 | `NekoXray-<tag>-universal.apk` | All ABIs bundled | Universal fallback installer |
 | `NekoXray-<tag>.aab` | Play App Bundle | Google Play / Play Creator Program distribution |
-
-<details>
-<summary><b>🔐 Automated GitHub Releases & GitHub Pages Landing Site (Click to expand)</b></summary>
-
-<br/>
-
-#### GitHub Actions Release Pipeline
-Push a version tag (`v*`, e.g. `v1.0.0`) or trigger **Release Multi-ABI APKs** manually in GitHub Actions to run all tests, build per-ABI APKs, generate `SHA256SUMS.txt`, and publish a GitHub Release.
-
-To sign release builds with your own upload key (`alias: upload`), configure these **GitHub Repository Secrets**:
-- `RELEASE_KEYSTORE_BASE64`
-- `RELEASE_STORE_PASSWORD`
-- `RELEASE_KEY_PASSWORD`
-
-#### Multilingual Download Landing Page (`docs/index.html`)
-The `docs/` folder contains a zero-dependency landing page that queries the GitHub Releases API, detects the visitor's Android CPU architecture, displays `SHA256SUMS.txt`, and supports instant **RU / EN / ZH-CN / ZH-TW / FA / ES** switching. Enable it under **Settings → Pages → Source: GitHub Actions** (`.github/workflows/pages.yml`).
-
-</details>
 
 ---
 

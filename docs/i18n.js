@@ -78,7 +78,7 @@ window.NEKO_I18N = {
     needRepoMsg:
       'Сайт открыт вне GitHub Pages. Укажите репозиторий в формате owner/repo выше (или через ?repo=owner/repo), чтобы подгрузить релиз.',
     noReleaseYetMsg:
-      'В репозитории {repo} пока нет опубликованных GitHub Releases. Создайте тег v1.0.0 или запустите workflow Release Multi-ABI APKs.',
+      'В репозитории {repo} пока нет опубликованных сборок. Загляните позже или откройте раздел GitHub Releases.',
     apiErrorMsg: 'Ошибка обращения к GitHub API ({status}) для {repo}. Проверьте имя репозитория или повторите позже.',
     heroBadgeReady: 'Последний релиз {tag} · Xray-core v26.10.31',
     heroDownloadReady: 'Скачать {tag} ({abi})',
@@ -169,7 +169,7 @@ window.NEKO_I18N = {
     needRepoMsg:
       'Page opened outside GitHub Pages. Enter a GitHub repo (owner/repo) above or pass ?repo=owner/repo to fetch releases.',
     noReleaseYetMsg:
-      'Repository {repo} has no published GitHub Releases yet. Push tag v1.0.0 or run the Release Multi-ABI APKs workflow.',
+      'Repository {repo} has no published releases yet. Please check back later or open GitHub Releases.',
     apiErrorMsg: 'GitHub API error ({status}) while loading {repo}. Check repository name or retry shortly.',
     heroBadgeReady: 'Latest Release {tag} · Xray-core v26.10.31',
     heroDownloadReady: 'Download {tag} ({abi})',
@@ -249,7 +249,7 @@ window.NEKO_I18N = {
     downloadsShort: '次下载',
     noNotes: '该版本未填写更新说明。',
     needRepoMsg: '当前未部署在 GitHub Pages，请在上方输入 owner/repo 或在网址中添加 ?repo=owner/repo。',
-    noReleaseYetMsg: '仓库 {repo} 尚未发布任何 GitHub Release。请推送 v1.0.0 标签或手动运行发布工作流。',
+    noReleaseYetMsg: '仓库 {repo} 暂无已发布的版本，请稍后再查看或前往 GitHub Releases。',
     apiErrorMsg: '请求 {repo} 的 GitHub API 出错 ({status})，请检查仓库名或稍后重试。',
     heroBadgeReady: '最新版本 {tag} · Xray-core v26.10.31',
     heroDownloadReady: '下载 {tag} ({abi})',
@@ -329,7 +329,7 @@ window.NEKO_I18N = {
     downloadsShort: '次下載',
     noNotes: '此版本未提供更新說明。',
     needRepoMsg: '目前非於 GitHub Pages 環境開啟，請於上方輸入 owner/repo 或加上 ?repo=owner/repo 參數。',
-    noReleaseYetMsg: '儲存庫 {repo} 尚未發佈任何 GitHub Release。請推送 v1.0.0 標籤或執行發佈工作流程。',
+    noReleaseYetMsg: '儲存庫 {repo} 尚無已發佈的版本，請稍後再查看或前往 GitHub Releases。',
     apiErrorMsg: '讀取 {repo} 的 GitHub API 失敗 ({status})，請確認儲存庫名稱或稍後重試。',
     heroBadgeReady: '最新版本 {tag} · Xray-core v26.10.31',
     heroDownloadReady: '下載 {tag} ({abi})',
@@ -420,7 +420,7 @@ window.NEKO_I18N = {
     needRepoMsg:
       'صفحه خارج از GitHub Pages باز شده است. نام مخزن (owner/repo) را در بالا وارد کنید یا ?repo=owner/repo را به آدرس اضافه کنید.',
     noReleaseYetMsg:
-      'مخزن {repo} هنوز هیچ انتشار GitHub Release ندارد. تگ v1.0.0 را ارسال کنید یا workflow انتشار را اجرا کنید.',
+      'مخزن {repo} هنوز هیچ نسخه منتشرشده‌ای ندارد. لطفاً بعداً بررسی کنید یا صفحه GitHub Releases را باز کنید.',
     apiErrorMsg: 'خطا در ارتباط با GitHub API ({status}) برای {repo}. نام مخزن را بررسی کرده و دوباره تلاش کنید.',
     heroBadgeReady: 'آخرین نسخه {tag} · Xray-core v26.10.31',
     heroDownloadReady: 'دانلود {tag} ({abi})',
@@ -511,7 +511,7 @@ window.NEKO_I18N = {
     needRepoMsg:
       'Página abierta fuera de GitHub Pages. Introduce un repositorio (usuario/repo) arriba o usa ?repo=usuario/repo.',
     noReleaseYetMsg:
-      'El repositorio {repo} aún no tiene lanzamientos publicados. Crea un tag v1.0.0 o ejecuta el workflow de publicación.',
+      'El repositorio {repo} aún no tiene versiones publicadas. Vuelve más tarde o abre GitHub Releases.',
     apiErrorMsg: 'Error de GitHub API ({status}) al cargar {repo}. Verifica el nombre del repositorio o reintenta.',
     heroBadgeReady: 'Última versión {tag} · Xray-core v26.10.31',
     heroDownloadReady: 'Descargar {tag} ({abi})',
