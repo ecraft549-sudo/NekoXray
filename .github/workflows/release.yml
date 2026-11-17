@@ -57,7 +57,19 @@ jobs:
         run: |
           KS_PATH="${{ runner.temp }}/release-upload.jks"
           if [ -n "$SECRET_KS" ]; then
-            echo "$SECRET_KS" | base64 -d > "$KS_PATH"
+            CLEAN_B64="$(printf '%s' "$SECRET_KS" | tr -d '[:space:]\"'\''')"
+            if ! printf '%s' "$CLEAN_B64" | base64 -d > "$KS_PATH"; then
+              echo "::error::RELEASE_KEYSTORE_BASE64 is not valid Base64 (length after stripping whitespace: ${#CLEAN_B64}). Re-encode the .jks file cleanly and update the GitHub Secret."
+              exit 1
+            fi
+            if [ ! -s "$KS_PATH" ]; then
+              echo "::error::Decoded keystore file is empty. Check RELEASE_KEYSTORE_BASE64."
+              exit 1
+            fi
+            if ! keytool -list -keystore "$KS_PATH" -storepass "$SECRET_STORE_PASS" -alias upload >/dev/null 2>&1; then
+              echo "::error::Decoded keystore could not be opened with RELEASE_STORE_PASSWORD or does not contain alias 'upload'."
+              exit 1
+            fi
             echo "STORE_PASS=$SECRET_STORE_PASS" >> "$GITHUB_ENV"
             echo "KEY_PASS=$SECRET_KEY_PASS" >> "$GITHUB_ENV"
           else
