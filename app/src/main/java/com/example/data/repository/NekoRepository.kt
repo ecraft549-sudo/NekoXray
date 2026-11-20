@@ -99,6 +99,7 @@ class NekoRepository(
     }
 
     suspend fun deleteProfile(id: Long) {
+        profileDao.clearChainReferences(id)
         profileDao.deleteById(id)
     }
 
@@ -114,6 +115,35 @@ class NekoRepository(
     }
 
     suspend fun testProfileLatency(profile: ProxyProfile): Pair<Int?, Int?> {
+        val allProfiles = profileDao.getAllSync().map { it.toDomain() }
+        if (profile.chainProxyId > 0L) {
+            val chainIssues = XrayConfigBuilder.validateProfile(profile, allProfiles).filter { it.isError }
+            if (chainIssues.isNotEmpty()) {
+                profileDao.updateLatency(profile.id, null, null, System.currentTimeMillis())
+                return null to null
+            }
+            val ctx = appContext
+            val chainDelayMs = if (ctx != null) {
+                val geo = com.example.core.xray.XrayAssetHelper.ensureInitialized(ctx)
+                val settings = runCatching { settingsFlow.first() }.getOrDefault(XraySettings())
+                val rules = runCatching { routingRulesFlow.first() }.getOrDefault(emptyList())
+                val configJson = XrayConfigBuilder.buildConfigJson(
+                    profile = profile,
+                    settings = settings,
+                    rules = rules,
+                    includeTunInbound = false,
+                    hasGeoIp = geo.hasGeoIp,
+                    hasGeoSite = geo.hasGeoSite,
+                    allProfiles = allProfiles,
+                )
+                NetworkTester.testXrayOutboundDelay(ctx, configJson)
+            } else {
+                null
+            }
+            profileDao.updateLatency(profile.id, null, chainDelayMs, System.currentTimeMillis())
+            return null to chainDelayMs
+        }
+
         if (profile.protocol == ProxyProtocol.TUIC) {
             val tuicMs = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                 com.example.core.vpn.TuicTunnelBridge.testTuicHandshake(profile)
@@ -149,6 +179,7 @@ class NekoRepository(
                 includeTunInbound = false,
                 hasGeoIp = geo.hasGeoIp,
                 hasGeoSite = geo.hasGeoSite,
+                allProfiles = allProfiles,
             )
             NetworkTester.testXrayOutboundDelay(ctx, configJson)
         } else {
@@ -174,6 +205,7 @@ class NekoRepository(
 
     suspend fun deleteGroup(groupId: Long) {
         if (groupId == 1L) return
+        profileDao.clearChainReferencesByGroup(groupId)
         profileDao.deleteByGroup(groupId)
         groupDao.deleteById(groupId)
     }
@@ -188,6 +220,7 @@ class NekoRepository(
             userAgent = group.userAgent,
         )
         return result.map { fetched ->
+            profileDao.clearChainReferencesByGroup(group.id)
             profileDao.deleteByGroup(group.id)
             val insertedIds = profileDao.insertAll(fetched.profiles.map { ProfileEntity.fromDomain(it) })
             val currentSelectedId = selectedProfileIdFlow.first()
@@ -236,6 +269,7 @@ class NekoRepository(
         profile: ProxyProfile,
         settings: XraySettings,
         rules: List<RoutingRule>,
+        allProfiles: List<ProxyProfile> = emptyList(),
     ): String {
         val geo = appContext?.let { com.example.core.xray.XrayAssetHelper.currentStatus(it) }
         return XrayConfigBuilder.buildConfigJson(
@@ -244,6 +278,7 @@ class NekoRepository(
             rules = rules,
             hasGeoIp = geo?.hasGeoIp ?: true,
             hasGeoSite = geo?.hasGeoSite ?: true,
+            allProfiles = allProfiles,
         )
     }
 }

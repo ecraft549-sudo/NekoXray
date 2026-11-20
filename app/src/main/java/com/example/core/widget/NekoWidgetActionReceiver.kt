@@ -67,6 +67,7 @@ class NekoWidgetActionReceiver : BroadcastReceiver() {
             settings = settings,
             rules = rules,
             openActivityIfPermissionNeeded = true,
+            allProfiles = profiles,
         )
     }
 
@@ -86,7 +87,7 @@ class NekoWidgetActionReceiver : BroadcastReceiver() {
         val runtime = XrayEngineState.state.value
         val isRunning = runtime.status == TunnelStatus.CONNECTED || runtime.status == TunnelStatus.CONNECTING
         if (isRunning && runtime.activeProfileId != nextProfile.id) {
-            val valid = XrayConfigBuilder.validateProfile(nextProfile).none { it.isError }
+            val valid = XrayConfigBuilder.validateProfile(nextProfile, profiles).none { it.isError }
             if (valid) {
                 val settings = runCatching { repo.settingsFlow.first() }.getOrDefault(XraySettings())
                 val rules = runCatching { repo.routingRulesFlow.first() }.getOrDefault(emptyList())
@@ -96,6 +97,7 @@ class NekoWidgetActionReceiver : BroadcastReceiver() {
                     settings = settings,
                     rules = rules,
                     openActivityIfPermissionNeeded = false,
+                    allProfiles = profiles,
                 )
             }
         }

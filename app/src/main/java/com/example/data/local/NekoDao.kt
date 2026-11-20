@@ -18,6 +18,9 @@ interface ProfileDao {
     @Query("SELECT * FROM proxy_profiles WHERE id = :id")
     suspend fun getById(id: Long): ProfileEntity?
 
+    @Query("SELECT * FROM proxy_profiles ORDER BY createdAt DESC")
+    suspend fun getAllSync(): List<ProfileEntity>
+
     @Query("SELECT * FROM proxy_profiles WHERE groupId = :groupId")
     suspend fun getByGroupSync(groupId: Long): List<ProfileEntity>
 
@@ -32,6 +35,12 @@ interface ProfileDao {
 
     @Query("UPDATE proxy_profiles SET latencyMs = :latencyMs, tlsLatencyMs = :tlsLatencyMs, lastTestedAt = :testedAt WHERE id = :id")
     suspend fun updateLatency(id: Long, latencyMs: Int?, tlsLatencyMs: Int?, testedAt: Long)
+
+    @Query("UPDATE proxy_profiles SET chainProxyId = 0 WHERE chainProxyId = :targetId")
+    suspend fun clearChainReferences(targetId: Long)
+
+    @Query("UPDATE proxy_profiles SET chainProxyId = 0 WHERE chainProxyId IN (SELECT id FROM proxy_profiles WHERE groupId = :groupId)")
+    suspend fun clearChainReferencesByGroup(groupId: Long)
 
     @Query("DELETE FROM proxy_profiles WHERE id = :id")
     suspend fun deleteById(id: Long)

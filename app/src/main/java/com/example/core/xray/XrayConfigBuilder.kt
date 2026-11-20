@@ -27,10 +27,25 @@ import kotlinx.serialization.json.putJsonArray
 import kotlinx.serialization.json.putJsonObject
 
 /**
+ * Resolved proxy chain ordered from exit outbound (index 0, tagged "proxy")
+ * to outermost physical-network entry outbound (last index, tagged "chain-N").
+ */
+data class ChainResolution(
+    val hops: List<ProxyProfile>,
+    val hasCycle: Boolean = false,
+    val missingTargetId: Long? = null,
+    val unsupportedHopName: String? = null,
+    val maxDepthExceeded: Boolean = false,
+)
+
+/**
  * Generates Xray-core v26.10.31 JSON configuration from ProxyProfile models.
- * Includes full REALITY, XTLS-RPRX-Vision, XHTTP (SplitHTTP), TLS Fragment, DNS, and Routing.
+ * Includes full REALITY, XTLS-RPRX-Vision, XHTTP (SplitHTTP), Proxy Chaining (dialerProxy),
+ * TLS Fragment, DNS, and Routing.
  */
 object XrayConfigBuilder {
+
+    const val MAX_CHAIN_HOPS = 5
 
     private val prettyJson = Json { prettyPrint = true }
 
@@ -45,6 +60,61 @@ object XrayConfigBuilder {
         "::1/128",
     )
 
+    fun resolveChain(
+        profile: ProxyProfile,
+        allProfiles: List<ProxyProfile>,
+        maxHops: Int = MAX_CHAIN_HOPS,
+    ): ChainResolution {
+        val hops = mutableListOf(profile)
+        if (profile.chainProxyId <= 0L || profile.protocol == ProxyProtocol.CUSTOM_JSON) {
+            return ChainResolution(hops = hops)
+        }
+        val byId = allProfiles.associateBy { it.id }
+        val visited = mutableSetOf<Long>()
+        if (profile.id > 0L) visited.add(profile.id)
+
+        var current = profile
+        while (current.chainProxyId > 0L) {
+            val nextId = current.chainProxyId
+            if (nextId in visited) {
+                return ChainResolution(hops = hops, hasCycle = true)
+            }
+            if (hops.size >= maxHops) {
+                return ChainResolution(hops = hops, maxDepthExceeded = true)
+            }
+            val next = byId[nextId]
+                ?: return ChainResolution(hops = hops, missingTargetId = nextId)
+            if (next.protocol == ProxyProtocol.CUSTOM_JSON) {
+                return ChainResolution(hops = hops, unsupportedHopName = next.displayTitle())
+            }
+            hops.add(next)
+            visited.add(next.id)
+            current = next
+        }
+        return ChainResolution(hops = hops)
+    }
+
+    fun wouldCreateCycle(
+        editingProfileId: Long,
+        candidateEntryId: Long,
+        allProfiles: List<ProxyProfile>,
+    ): Boolean {
+        if (candidateEntryId <= 0L) return false
+        if (editingProfileId > 0L && candidateEntryId == editingProfileId) return true
+        val byId = allProfiles.associateBy { it.id }
+        val visited = mutableSetOf<Long>()
+        if (editingProfileId > 0L) visited.add(editingProfileId)
+        var currentId = candidateEntryId
+        var steps = 0
+        while (currentId > 0L && steps <= MAX_CHAIN_HOPS + 2) {
+            if (currentId in visited) return true
+            visited.add(currentId)
+            currentId = byId[currentId]?.chainProxyId ?: 0L
+            steps++
+        }
+        return false
+    }
+
     fun buildConfigJson(
         profile: ProxyProfile,
         settings: XraySettings,
@@ -54,6 +124,8 @@ object XrayConfigBuilder {
         tuicLocalBridgePort: Int = 0,
         hasGeoIp: Boolean = true,
         hasGeoSite: Boolean = true,
+        allProfiles: List<ProxyProfile> = emptyList(),
+        chainBridgePorts: Map<Long, Int> = emptyMap(),
     ): String {
         if (profile.protocol == ProxyProtocol.CUSTOM_JSON && profile.customConfigJson.isNotBlank()) {
             return runCatching {
@@ -61,6 +133,11 @@ object XrayConfigBuilder {
                 prettyJson.encodeToString(JsonElement.serializer(), parsed)
             }.getOrDefault(profile.customConfigJson)
         }
+
+        val chain = resolveChain(profile, allProfiles)
+        val hops = chain.hops
+        val hasSshInChain = hops.any { it.protocol == ProxyProtocol.SSH }
+        val outermostHop = hops.last()
 
         val root = buildJsonObject {
             putJsonObject("log") {
@@ -103,7 +180,7 @@ object XrayConfigBuilder {
                 .distinct()
 
             val effectiveQueryStrategy = if (
-                profile.protocol == ProxyProtocol.SSH &&
+                hasSshInChain &&
                 settings.ipv6Mode != com.example.core.model.IPv6Mode.ONLY
             ) {
                 "UseIPv4"
@@ -111,13 +188,26 @@ object XrayConfigBuilder {
                 settings.ipv6Mode.wireStrategy
             }
 
-            val serverHost = profile.serverAddress.trim()
-            val needsServerBootstrapDns = serverHost.isNotBlank() && !isIpLiteral(serverHost)
+            // Bootstrap the physical entry hop hostname (and any hop dialing through WireGuard, which is L3 IP-only)
+            // in Direct DNS so Xray never deadlocks resolving its own entry server.
+            val bootstrapServerHosts = buildList {
+                val entryHost = outermostHop.serverAddress.trim()
+                if (entryHost.isNotBlank() && !isIpLiteral(entryHost)) {
+                    add(entryHost)
+                }
+                for (i in 0 until hops.lastIndex) {
+                    if (hops[i + 1].protocol == ProxyProtocol.WIREGUARD) {
+                        val h = hops[i].serverAddress.trim()
+                        if (h.isNotBlank() && !isIpLiteral(h)) add(h)
+                    }
+                }
+            }.distinct()
+            val needsServerBootstrapDns = bootstrapServerHosts.isNotEmpty()
 
             putJsonObject("dns") {
                 put("queryStrategy", effectiveQueryStrategy)
                 putJsonArray("servers") {
-                    if (profile.protocol == ProxyProtocol.SSH) {
+                    if (hasSshInChain) {
                         add("tcp://1.1.1.1:53")
                         add("tcp://8.8.8.8:53")
                     }
@@ -131,20 +221,22 @@ object XrayConfigBuilder {
                                 } else {
                                     add("domain:local")
                                 }
-                                if (needsServerBootstrapDns) {
-                                    add("full:$serverHost")
+                                bootstrapServerHosts.forEach { host ->
+                                    add("full:$host")
                                 }
                                 directRuleDomains.forEach { add(it) }
                             }
                             put("skipFallback", true)
                         }
                     } else if (needsServerBootstrapDns) {
-                        // When Direct DNS is disabled for user traffic, still bootstrap the proxy server's own hostname
+                        // When Direct DNS is disabled for user traffic, still bootstrap the entry server's hostname
                         // so Xray can establish the tunnel without a circular DNS dependency.
                         addJsonObject {
                             put("address", effectiveDirectDnsAddress)
                             putJsonArray("domains") {
-                                add("full:$serverHost")
+                                bootstrapServerHosts.forEach { host ->
+                                    add("full:$host")
+                                }
                             }
                             put("skipFallback", true)
                         }
@@ -210,7 +302,27 @@ object XrayConfigBuilder {
             }
 
             putJsonArray("outbounds") {
-                add(buildPrimaryOutbound(profile, settings, sshLocalBridgePort, tuicLocalBridgePort))
+                hops.forEachIndexed { idx, hop ->
+                    val tag = if (idx == 0) "proxy" else "chain-$idx"
+                    val dialerProxyTag = if (idx + 1 < hops.size) "chain-${idx + 1}" else null
+                    val isOutermostHop = idx == hops.lastIndex
+                    val upstreamIsWireGuard = idx + 1 < hops.size && hops[idx + 1].protocol == ProxyProtocol.WIREGUARD
+                    val hopSshPort = chainBridgePorts[hop.id] ?: if (idx == 0) sshLocalBridgePort else 0
+                    val hopTuicPort = chainBridgePorts[hop.id] ?: if (idx == 0) tuicLocalBridgePort else 0
+                    add(
+                        buildOutbound(
+                            profile = hop,
+                            tag = tag,
+                            settings = settings,
+                            dialerProxyTag = dialerProxyTag,
+                            isOutermostHop = isOutermostHop,
+                            upstreamIsWireGuard = upstreamIsWireGuard,
+                            sshLocalBridgePort = hopSshPort,
+                            tuicLocalBridgePort = hopTuicPort,
+                            hopIndex = idx,
+                        )
+                    )
+                }
 
                 if (settings.fragmentEnabled) {
                     addJsonObject {
@@ -368,14 +480,27 @@ object XrayConfigBuilder {
         return prettyJson.encodeToString(JsonObject.serializer(), root)
     }
 
-    private fun buildPrimaryOutbound(
+    private fun buildOutbound(
         profile: ProxyProfile,
+        tag: String,
         settings: XraySettings,
+        dialerProxyTag: String? = null,
+        isOutermostHop: Boolean = true,
+        upstreamIsWireGuard: Boolean = false,
         sshLocalBridgePort: Int = 0,
         tuicLocalBridgePort: Int = 0,
+        hopIndex: Int = 0,
     ): JsonObject {
+        val effectiveDomainStrategy = if (dialerProxyTag != null && !upstreamIsWireGuard) {
+            // Pass the next hop's domain name as-is through dialerProxy so the entry server resolves it remotely
+            // without local DNS deadlock or ISP DNS leakage.
+            "AsIs"
+        } else {
+            settings.ipv6Mode.wireStrategy
+        }
+
         return buildJsonObject {
-            put("tag", "proxy")
+            put("tag", tag)
             when (profile.protocol) {
                 ProxyProtocol.VLESS -> {
                     put("protocol", "vless")
@@ -397,7 +522,10 @@ object XrayConfigBuilder {
                             }
                         }
                     }
-                    put("streamSettings", buildStreamSettings(profile, settings))
+                    put(
+                        "streamSettings",
+                        buildStreamSettings(profile, settings, dialerProxyTag, isOutermostHop, effectiveDomainStrategy),
+                    )
                 }
 
                 ProxyProtocol.VMESS -> {
@@ -418,7 +546,10 @@ object XrayConfigBuilder {
                             }
                         }
                     }
-                    put("streamSettings", buildStreamSettings(profile, settings))
+                    put(
+                        "streamSettings",
+                        buildStreamSettings(profile, settings, dialerProxyTag, isOutermostHop, effectiveDomainStrategy),
+                    )
                 }
 
                 ProxyProtocol.TROJAN -> {
@@ -433,7 +564,10 @@ object XrayConfigBuilder {
                             }
                         }
                     }
-                    put("streamSettings", buildStreamSettings(profile, settings))
+                    put(
+                        "streamSettings",
+                        buildStreamSettings(profile, settings, dialerProxyTag, isOutermostHop, effectiveDomainStrategy),
+                    )
                 }
 
                 ProxyProtocol.SHADOWSOCKS -> {
@@ -448,6 +582,9 @@ object XrayConfigBuilder {
                                 put("uot", true)
                             }
                         }
+                    }
+                    if (dialerProxyTag != null) {
+                        put("streamSettings", buildDialerOnlyStreamSettings(dialerProxyTag, effectiveDomainStrategy))
                     }
                 }
 
@@ -468,6 +605,9 @@ object XrayConfigBuilder {
                                 }
                             }
                         }
+                    }
+                    if (dialerProxyTag != null) {
+                        put("streamSettings", buildDialerOnlyStreamSettings(dialerProxyTag, effectiveDomainStrategy))
                     }
                 }
 
@@ -490,7 +630,12 @@ object XrayConfigBuilder {
                         }
                     }
                     if (profile.security != SecurityType.NONE) {
-                        put("streamSettings", buildStreamSettings(profile, settings))
+                        put(
+                            "streamSettings",
+                            buildStreamSettings(profile, settings, dialerProxyTag, isOutermostHop, effectiveDomainStrategy),
+                        )
+                    } else if (dialerProxyTag != null) {
+                        put("streamSettings", buildDialerOnlyStreamSettings(dialerProxyTag, effectiveDomainStrategy))
                     }
                 }
 
@@ -501,11 +646,14 @@ object XrayConfigBuilder {
                         put("address", profile.serverAddress)
                         put("port", profile.serverPort)
                     }
-                    put("streamSettings", buildHysteria2StreamSettings(profile, settings))
+                    put(
+                        "streamSettings",
+                        buildHysteria2StreamSettings(profile, settings, dialerProxyTag, effectiveDomainStrategy),
+                    )
                 }
 
                 ProxyProtocol.TUIC -> {
-                    val bridgePort = if (tuicLocalBridgePort > 0) tuicLocalBridgePort else settings.socksPort + 101
+                    val bridgePort = if (tuicLocalBridgePort > 0) tuicLocalBridgePort else settings.socksPort + 101 + hopIndex
                     put("protocol", "socks")
                     putJsonObject("settings") {
                         putJsonArray("servers") {
@@ -518,7 +666,7 @@ object XrayConfigBuilder {
                 }
 
                 ProxyProtocol.SSH -> {
-                    val bridgePort = if (sshLocalBridgePort > 0) sshLocalBridgePort else settings.socksPort + 100
+                    val bridgePort = if (sshLocalBridgePort > 0) sshLocalBridgePort else settings.socksPort + 100 + hopIndex
                     put("protocol", "socks")
                     putJsonObject("settings") {
                         putJsonArray("servers") {
@@ -558,6 +706,9 @@ object XrayConfigBuilder {
                             }
                         }
                     }
+                    if (dialerProxyTag != null) {
+                        put("streamSettings", buildDialerOnlyStreamSettings(dialerProxyTag, effectiveDomainStrategy))
+                    }
                 }
 
                 ProxyProtocol.CUSTOM_JSON -> Unit
@@ -576,7 +727,23 @@ object XrayConfigBuilder {
         }
     }
 
-    private fun buildStreamSettings(profile: ProxyProfile, settings: XraySettings): JsonObject {
+    private fun buildDialerOnlyStreamSettings(
+        dialerProxyTag: String,
+        domainStrategy: String,
+    ): JsonObject = buildJsonObject {
+        putJsonObject("sockopt") {
+            put("domainStrategy", domainStrategy)
+            put("dialerProxy", dialerProxyTag)
+        }
+    }
+
+    private fun buildStreamSettings(
+        profile: ProxyProfile,
+        settings: XraySettings,
+        dialerProxyTag: String? = null,
+        isOutermostHop: Boolean = true,
+        domainStrategy: String = settings.ipv6Mode.wireStrategy,
+    ): JsonObject {
         return buildJsonObject {
             put("network", profile.transport.wireValue)
             put("security", profile.security.wireValue)
@@ -688,15 +855,23 @@ object XrayConfigBuilder {
             }
 
             putJsonObject("sockopt") {
-                put("domainStrategy", settings.ipv6Mode.wireStrategy)
-                if (settings.fragmentEnabled && profile.security != SecurityType.NONE) {
-                    put("dialerProxy", "fragment")
+                put("domainStrategy", domainStrategy)
+                when {
+                    dialerProxyTag != null -> put("dialerProxy", dialerProxyTag)
+                    isOutermostHop && settings.fragmentEnabled && profile.security != SecurityType.NONE -> {
+                        put("dialerProxy", "fragment")
+                    }
                 }
             }
         }
     }
 
-    private fun buildHysteria2StreamSettings(profile: ProxyProfile, settings: XraySettings): JsonObject {
+    private fun buildHysteria2StreamSettings(
+        profile: ProxyProfile,
+        settings: XraySettings,
+        dialerProxyTag: String? = null,
+        domainStrategy: String = settings.ipv6Mode.wireStrategy,
+    ): JsonObject {
         return buildJsonObject {
             put("network", "hysteria")
             put("security", "tls")
@@ -764,7 +939,10 @@ object XrayConfigBuilder {
             }
 
             putJsonObject("sockopt") {
-                put("domainStrategy", settings.ipv6Mode.wireStrategy)
+                put("domainStrategy", domainStrategy)
+                if (dialerProxyTag != null) {
+                    put("dialerProxy", dialerProxyTag)
+                }
             }
         }
     }
@@ -816,7 +994,76 @@ object XrayConfigBuilder {
         return prettyJson.encodeToString(JsonObject.serializer(), obj)
     }
 
-    fun validateProfile(profile: ProxyProfile): List<ConfigValidationIssue> {
+    fun validateProfile(
+        profile: ProxyProfile,
+        allProfiles: List<ProxyProfile> = emptyList(),
+    ): List<ConfigValidationIssue> {
+        val issues = validateSingleProfile(profile).toMutableList()
+        if (profile.chainProxyId > 0L) {
+            if (profile.protocol == ProxyProtocol.CUSTOM_JSON) {
+                issues += ConfigValidationIssue(
+                    isError = true,
+                    message = "Custom Xray JSON profiles cannot use managed proxy chaining.",
+                )
+            } else if (profile.protocol in listOf(ProxyProtocol.SSH, ProxyProtocol.TUIC)) {
+                issues += ConfigValidationIssue(
+                    isError = true,
+                    message = "${profile.protocol.displayName} cannot dial through another proxy; use it as the entry proxy of another profile instead.",
+                )
+            } else if (profile.id > 0L && profile.chainProxyId == profile.id) {
+                issues += ConfigValidationIssue(
+                    isError = true,
+                    message = "Proxy chain cannot reference itself.",
+                )
+            } else if (allProfiles.isNotEmpty()) {
+                val chain = resolveChain(profile, allProfiles)
+                if (chain.hasCycle) {
+                    issues += ConfigValidationIssue(
+                        isError = true,
+                        message = "Proxy chain contains a circular loop.",
+                    )
+                }
+                if (chain.maxDepthExceeded) {
+                    issues += ConfigValidationIssue(
+                        isError = true,
+                        message = "Proxy chain exceeds the maximum depth of $MAX_CHAIN_HOPS hops.",
+                    )
+                }
+                if (chain.missingTargetId != null) {
+                    issues += ConfigValidationIssue(
+                        isError = true,
+                        message = "Chained entry proxy (ID ${chain.missingTargetId}) was not found.",
+                    )
+                }
+                if (chain.unsupportedHopName != null) {
+                    issues += ConfigValidationIssue(
+                        isError = true,
+                        message = "Custom Xray JSON profile '${chain.unsupportedHopName}' cannot be used in a proxy chain.",
+                    )
+                }
+                chain.hops.forEachIndexed { idx, hop ->
+                    if (idx == 0) return@forEachIndexed
+                    if (idx < chain.hops.lastIndex && hop.protocol in listOf(ProxyProtocol.SSH, ProxyProtocol.TUIC)) {
+                        issues += ConfigValidationIssue(
+                            isError = true,
+                            message = "Chain hop '${hop.displayTitle()}' (${hop.protocol.displayName}) can only be the outermost entry hop.",
+                        )
+                    }
+                    validateSingleProfile(hop)
+                        .filter { it.isError }
+                        .forEach { hopErr ->
+                            issues += ConfigValidationIssue(
+                                isError = true,
+                                message = "Chain hop '${hop.displayTitle()}': ${hopErr.message}",
+                            )
+                        }
+                }
+            }
+        }
+        return issues
+    }
+
+    private fun validateSingleProfile(profile: ProxyProfile): List<ConfigValidationIssue> {
         val issues = mutableListOf<ConfigValidationIssue>()
         if (profile.protocol == ProxyProtocol.CUSTOM_JSON) {
             if (profile.customConfigJson.isBlank()) {

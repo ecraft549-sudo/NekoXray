@@ -70,8 +70,24 @@ jobs:
               echo "::error::Decoded keystore could not be opened with RELEASE_STORE_PASSWORD or does not contain alias 'upload'."
               exit 1
             fi
+            EFFECTIVE_KEY_PASS="${SECRET_KEY_PASS:-$SECRET_STORE_PASS}"
+            CHECK_KS="${{ runner.temp }}/check-key.p12"
+            rm -f "$CHECK_KS"
+            if ! keytool -importkeystore -noprompt \
+              -srckeystore "$KS_PATH" \
+              -srcstorepass "$SECRET_STORE_PASS" \
+              -srcalias upload \
+              -srckeypass "$EFFECTIVE_KEY_PASS" \
+              -destkeystore "$CHECK_KS" \
+              -deststorepass "check1234" \
+              -destkeypass "check1234" >/dev/null 2>&1; then
+              rm -f "$CHECK_KS"
+              echo "::error::RELEASE_KEY_PASSWORD failed to decrypt private key 'upload' (Given final block not properly padded). Update GitHub Secret RELEASE_KEY_PASSWORD (for PKCS12 keystores created with modern keytool, it must match RELEASE_STORE_PASSWORD)."
+              exit 1
+            fi
+            rm -f "$CHECK_KS"
             echo "STORE_PASS=$SECRET_STORE_PASS" >> "$GITHUB_ENV"
-            echo "KEY_PASS=$SECRET_KEY_PASS" >> "$GITHUB_ENV"
+            echo "KEY_PASS=$EFFECTIVE_KEY_PASS" >> "$GITHUB_ENV"
           else
             echo "RELEASE_KEYSTORE_BASE64 not set; importing persistent key from debug.keystore so in-place APK updates always succeed across releases."
             keytool -importkeystore -noprompt \

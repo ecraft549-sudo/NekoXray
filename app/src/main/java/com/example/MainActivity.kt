@@ -20,14 +20,14 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AltRoute
+import androidx.compose.material.icons.automirrored.filled.AltRoute
+import androidx.compose.material.icons.automirrored.outlined.AltRoute
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.FolderCopy
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Stop
-import androidx.compose.material.icons.outlined.AltRoute
 import androidx.compose.material.icons.outlined.Build
 import androidx.compose.material.icons.outlined.Dns
 import androidx.compose.material.icons.outlined.FolderCopy
@@ -183,7 +183,7 @@ private fun NekoXrayRoot(
         listOf(
             TopTab(NekoRoute.Profiles, strings.navProfiles, Icons.Filled.Dns, Icons.Outlined.Dns, "nav_profiles"),
             TopTab(NekoRoute.Groups, strings.navGroups, Icons.Filled.FolderCopy, Icons.Outlined.FolderCopy, "nav_groups"),
-            TopTab(NekoRoute.Routing, strings.navRouting, Icons.Filled.AltRoute, Icons.Outlined.AltRoute, "nav_routing"),
+            TopTab(NekoRoute.Routing, strings.navRouting, Icons.AutoMirrored.Filled.AltRoute, Icons.AutoMirrored.Outlined.AltRoute, "nav_routing"),
             TopTab(NekoRoute.Tools, strings.navTools, Icons.Filled.Build, Icons.Outlined.Build, "nav_tools"),
             TopTab(NekoRoute.Settings, strings.navSettings, Icons.Filled.Settings, Icons.Outlined.Settings, "nav_settings"),
         )
@@ -438,6 +438,7 @@ private fun NekoXrayRoot(
                                     profileId = route.profileId,
                                     initialProtocol = route.initialProtocol,
                                     defaultGroupId = state.selectedGroupId,
+                                    allProfiles = state.profiles,
                                     loadProfile = viewModel::loadProfile,
                                     onSave = { edited ->
                                         if (backEntry.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {

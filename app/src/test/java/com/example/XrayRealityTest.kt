@@ -1780,13 +1780,13 @@ class XrayRealityTest {
         assertTrue(tuicRound.tuicDisableSni)
         assertEquals(12000, tuicRound.tuicHeartbeatIntervalMs)
 
-        // Verify Room in-memory DB opens at version 4 cleanly
+        // Verify Room in-memory DB opens at version 5 cleanly
         val ctx = androidx.test.core.app.ApplicationProvider.getApplicationContext<android.content.Context>()
         val db = androidx.room.Room.inMemoryDatabaseBuilder(ctx, com.example.data.local.NekoDatabase::class.java)
             .allowMainThreadQueries()
             .build()
         try {
-            assertEquals(4, db.openHelper.readableDatabase.version)
+            assertEquals(5, db.openHelper.readableDatabase.version)
             val insertedHy2Id = kotlinx.coroutines.runBlocking {
                 db.profileDao().insert(com.example.data.local.ProfileEntity.fromDomain(hy2))
             }
@@ -1794,6 +1794,395 @@ class XrayRealityTest {
             assertNotNull(loaded)
             assertEquals("salamander", loaded!!.hy2Obfs)
             assertEquals("30000-35000", loaded.hy2Ports)
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test
+    fun `proxy chain vless reality to socks5 wires dialerProxy fragment and anti-leak dns`() {
+        val keys = RealityKeyGenerator.generateBundle()
+        val vlessEntry = com.example.core.model.ProxyProfile(
+            id = 101L,
+            name = "Entry REALITY",
+            protocol = ProxyProtocol.VLESS,
+            serverAddress = "entry-reality.example.net",
+            serverPort = 443,
+            uuid = keys.uuid,
+            security = SecurityType.REALITY,
+            transport = TransportType.TCP,
+            flow = FlowType.VISION,
+            sni = "www.microsoft.com",
+            fingerprint = "chrome",
+            realityPublicKey = keys.publicKey,
+            realityShortId = keys.shortId,
+        )
+        val socksExit = com.example.core.model.ProxyProfile(
+            id = 102L,
+            name = "Exit SOCKS5",
+            protocol = ProxyProtocol.SOCKS5,
+            serverAddress = "exit-socks.example.org",
+            serverPort = 1080,
+            username = "socksuser",
+            password = "sockspass",
+            security = SecurityType.NONE,
+            flow = FlowType.NONE,
+            chainProxyId = vlessEntry.id,
+        )
+        val allProfiles = listOf(vlessEntry, socksExit)
+
+        val validationErrors = XrayConfigBuilder.validateProfile(socksExit, allProfiles).filter { it.isError }
+        assertTrue("Expected no validation errors for VLESS->SOCKS5 chain, got: $validationErrors", validationErrors.isEmpty())
+
+        val config = JSONObject(
+            XrayConfigBuilder.buildConfigJson(
+                profile = socksExit,
+                settings = XraySettings(fragmentEnabled = true),
+                rules = emptyList(),
+                allProfiles = allProfiles,
+            )
+        )
+        val outbounds = config.getJSONArray("outbounds")
+        val proxyOut = outbounds.getJSONObject(0)
+        val chain1Out = outbounds.getJSONObject(1)
+
+        // Exit outbound ("proxy") is SOCKS5 with auth, dialing via "chain-1" and domainStrategy = AsIs
+        assertEquals("proxy", proxyOut.getString("tag"))
+        assertEquals("socks", proxyOut.getString("protocol"))
+        val socksServer = proxyOut.getJSONObject("settings").getJSONArray("servers").getJSONObject(0)
+        assertEquals("exit-socks.example.org", socksServer.getString("address"))
+        assertEquals(1080, socksServer.getInt("port"))
+        val socksUser = socksServer.getJSONArray("users").getJSONObject(0)
+        assertEquals("socksuser", socksUser.getString("user"))
+        assertEquals("sockspass", socksUser.getString("pass"))
+        val exitSockopt = proxyOut.getJSONObject("streamSettings").getJSONObject("sockopt")
+        assertEquals("chain-1", exitSockopt.getString("dialerProxy"))
+        assertEquals("AsIs", exitSockopt.getString("domainStrategy"))
+
+        // Outermost entry outbound ("chain-1") is VLESS REALITY and receives TLS fragment
+        assertEquals("chain-1", chain1Out.getString("tag"))
+        assertEquals("vless", chain1Out.getString("protocol"))
+        val entryStream = chain1Out.getJSONObject("streamSettings")
+        assertEquals("reality", entryStream.getString("security"))
+        assertEquals("fragment", entryStream.getJSONObject("sockopt").getString("dialerProxy"))
+
+        // Direct DNS bootstrap must include outermost entry host and must NOT leak exit SOCKS5 host
+        val dnsStr = config.getJSONObject("dns").toString()
+        assertTrue("Expected entry host in direct DNS bootstrap", dnsStr.contains("full:entry-reality.example.net"))
+        assertTrue("Exit host must not leak into direct DNS bootstrap", !dnsStr.contains("exit-socks.example.org"))
+
+        // Widget protocol label summarizes entry -> exit
+        val label = com.example.core.widget.NekoWidgetManager.formatProtocolLabel(socksExit, allProfiles)
+        assertEquals("VLESS → SOCKS5", label)
+    }
+
+    @Test
+    fun `proxy chain socks5 to vless reality and multi-hop 3-node chain wire outbounds in order`() {
+        val keys = RealityKeyGenerator.generateBundle()
+        val socksEntry = com.example.core.model.ProxyProfile(
+            id = 201L,
+            name = "Local SOCKS5",
+            protocol = ProxyProtocol.SOCKS5,
+            serverAddress = "198.51.100.20",
+            serverPort = 1080,
+            security = SecurityType.NONE,
+            flow = FlowType.NONE,
+        )
+        val vlessExit = com.example.core.model.ProxyProfile(
+            id = 202L,
+            name = "Exit VLESS",
+            protocol = ProxyProtocol.VLESS,
+            serverAddress = "203.0.113.20",
+            serverPort = 443,
+            uuid = keys.uuid,
+            security = SecurityType.REALITY,
+            sni = "www.microsoft.com",
+            realityPublicKey = keys.publicKey,
+            realityShortId = keys.shortId,
+            chainProxyId = socksEntry.id,
+        )
+        val socksToVless = JSONObject(
+            XrayConfigBuilder.buildConfigJson(
+                profile = vlessExit,
+                settings = XraySettings(fragmentEnabled = true),
+                rules = emptyList(),
+                allProfiles = listOf(socksEntry, vlessExit),
+            )
+        )
+        val outs1 = socksToVless.getJSONArray("outbounds")
+        assertEquals("proxy", outs1.getJSONObject(0).getString("tag"))
+        assertEquals("vless", outs1.getJSONObject(0).getString("protocol"))
+        assertEquals(
+            "chain-1",
+            outs1.getJSONObject(0).getJSONObject("streamSettings").getJSONObject("sockopt").getString("dialerProxy"),
+        )
+        assertEquals("chain-1", outs1.getJSONObject(1).getString("tag"))
+        assertEquals("socks", outs1.getJSONObject(1).getString("protocol"))
+        assertTrue(!outs1.getJSONObject(1).has("streamSettings"))
+
+        // 3-hop chain: Hysteria 2 -> Trojan -> SOCKS5
+        val hy2Entry = com.example.core.model.ProxyProfile(
+            id = 301L,
+            name = "Hy2 Entry",
+            protocol = ProxyProtocol.HYSTERIA2,
+            serverAddress = "hy2.example.net",
+            serverPort = 443,
+            password = "hy2-password",
+            sni = "cdn.example.net",
+            security = SecurityType.TLS,
+            flow = FlowType.NONE,
+        )
+        val trojanMid = com.example.core.model.ProxyProfile(
+            id = 302L,
+            name = "Trojan Mid",
+            protocol = ProxyProtocol.TROJAN,
+            serverAddress = "trojan.example.net",
+            serverPort = 443,
+            password = "trojan-password",
+            sni = "trojan.example.net",
+            security = SecurityType.TLS,
+            flow = FlowType.NONE,
+            chainProxyId = hy2Entry.id,
+        )
+        val socksExit = com.example.core.model.ProxyProfile(
+            id = 303L,
+            name = "SOCKS5 Exit",
+            protocol = ProxyProtocol.SOCKS5,
+            serverAddress = "198.51.100.33",
+            serverPort = 1080,
+            security = SecurityType.NONE,
+            flow = FlowType.NONE,
+            chainProxyId = trojanMid.id,
+        )
+        val threeHopList = listOf(hy2Entry, trojanMid, socksExit)
+        assertTrue(XrayConfigBuilder.validateProfile(socksExit, threeHopList).none { it.isError })
+
+        val threeHopJson = JSONObject(
+            XrayConfigBuilder.buildConfigJson(
+                profile = socksExit,
+                settings = XraySettings(),
+                rules = emptyList(),
+                allProfiles = threeHopList,
+            )
+        )
+        val outs3 = threeHopJson.getJSONArray("outbounds")
+        assertEquals("proxy", outs3.getJSONObject(0).getString("tag"))
+        assertEquals("socks", outs3.getJSONObject(0).getString("protocol"))
+        assertEquals("chain-1", outs3.getJSONObject(0).getJSONObject("streamSettings").getJSONObject("sockopt").getString("dialerProxy"))
+
+        assertEquals("chain-1", outs3.getJSONObject(1).getString("tag"))
+        assertEquals("trojan", outs3.getJSONObject(1).getString("protocol"))
+        assertEquals("chain-2", outs3.getJSONObject(1).getJSONObject("streamSettings").getJSONObject("sockopt").getString("dialerProxy"))
+
+        assertEquals("chain-2", outs3.getJSONObject(2).getString("tag"))
+        assertEquals("hysteria", outs3.getJSONObject(2).getString("protocol"))
+        assertTrue(!outs3.getJSONObject(2).getJSONObject("streamSettings").optJSONObject("sockopt")!!.has("dialerProxy"))
+    }
+
+    @Test
+    fun `proxy chain ssh entry bridge to socks5 exit configures local bridge port and tcp dns`() {
+        val sshEntry = com.example.core.model.ProxyProfile(
+            id = 401L,
+            name = "SSH Entry",
+            protocol = ProxyProtocol.SSH,
+            serverAddress = "ssh-entry.example.org",
+            serverPort = 22,
+            username = "tunnel",
+            password = "secret",
+            sshAuthType = com.example.core.model.SshAuthType.PASSWORD,
+            security = SecurityType.NONE,
+            flow = FlowType.NONE,
+        )
+        val socksExit = com.example.core.model.ProxyProfile(
+            id = 402L,
+            name = "SOCKS5 Exit",
+            protocol = ProxyProtocol.SOCKS5,
+            serverAddress = "203.0.113.50",
+            serverPort = 1080,
+            security = SecurityType.NONE,
+            flow = FlowType.NONE,
+            chainProxyId = sshEntry.id,
+        )
+        val allProfiles = listOf(sshEntry, socksExit)
+        assertTrue(XrayConfigBuilder.validateProfile(socksExit, allProfiles).none { it.isError })
+
+        val json = JSONObject(
+            XrayConfigBuilder.buildConfigJson(
+                profile = socksExit,
+                settings = XraySettings(),
+                rules = emptyList(),
+                allProfiles = allProfiles,
+                chainBridgePorts = mapOf(sshEntry.id to 19876),
+            )
+        )
+        val outbounds = json.getJSONArray("outbounds")
+        val proxyOut = outbounds.getJSONObject(0)
+        val chain1Out = outbounds.getJSONObject(1)
+
+        assertEquals("proxy", proxyOut.getString("tag"))
+        assertEquals("socks", proxyOut.getString("protocol"))
+        assertEquals("chain-1", proxyOut.getJSONObject("streamSettings").getJSONObject("sockopt").getString("dialerProxy"))
+
+        assertEquals("chain-1", chain1Out.getString("tag"))
+        assertEquals("socks", chain1Out.getString("protocol"))
+        val bridgeSrv = chain1Out.getJSONObject("settings").getJSONArray("servers").getJSONObject(0)
+        assertEquals("127.0.0.1", bridgeSrv.getString("address"))
+        assertEquals(19876, bridgeSrv.getInt("port"))
+
+        val dnsObj = json.getJSONObject("dns")
+        assertEquals("UseIPv4", dnsObj.getString("queryStrategy"))
+        assertEquals("tcp://1.1.1.1:53", dnsObj.getJSONArray("servers").getString(0))
+    }
+
+    @Test
+    fun `proxy chain validation detects cycles missing targets custom json and unsupported exit hops`() {
+        val nodeA = com.example.core.model.ProxyProfile(
+            id = 501L,
+            name = "Node A",
+            protocol = ProxyProtocol.SOCKS5,
+            serverAddress = "198.51.100.1",
+            serverPort = 1080,
+            security = SecurityType.NONE,
+            flow = FlowType.NONE,
+            chainProxyId = 502L,
+        )
+        val nodeB = com.example.core.model.ProxyProfile(
+            id = 502L,
+            name = "Node B",
+            protocol = ProxyProtocol.SOCKS5,
+            serverAddress = "198.51.100.2",
+            serverPort = 1080,
+            security = SecurityType.NONE,
+            flow = FlowType.NONE,
+            chainProxyId = 501L,
+        )
+        val loopProfiles = listOf(nodeA, nodeB)
+        assertTrue(XrayConfigBuilder.wouldCreateCycle(501L, 502L, loopProfiles))
+        assertTrue(XrayConfigBuilder.wouldCreateCycle(501L, 501L, loopProfiles))
+        assertTrue(XrayConfigBuilder.validateProfile(nodeA, loopProfiles).any { it.isError })
+
+        // Self reference
+        val selfChain = nodeA.copy(chainProxyId = nodeA.id)
+        assertTrue(XrayConfigBuilder.validateProfile(selfChain, listOf(selfChain)).any { it.isError })
+
+        // Missing target ID
+        val brokenChain = nodeA.copy(chainProxyId = 9999L)
+        assertTrue(XrayConfigBuilder.validateProfile(brokenChain, listOf(brokenChain)).any { it.isError })
+
+        // Custom JSON as upstream hop
+        val customHop = com.example.core.model.ProxyProfile(
+            id = 503L,
+            name = "Custom Raw",
+            protocol = ProxyProtocol.CUSTOM_JSON,
+            customConfigJson = """{"outbounds":[{"protocol":"freedom"}]}""",
+        )
+        val chainViaCustom = nodeA.copy(chainProxyId = customHop.id)
+        assertTrue(XrayConfigBuilder.validateProfile(chainViaCustom, listOf(customHop, chainViaCustom)).any { it.isError })
+
+        // SSH or TUIC as chained exit hop must fail validation
+        val validEntry = nodeA.copy(id = 504L, chainProxyId = 0L)
+        assertTrue(!XrayConfigBuilder.wouldCreateCycle(505L, validEntry.id, listOf(validEntry)))
+        val sshAsExit = com.example.core.model.ProxyProfile(
+            id = 505L,
+            name = "SSH Exit",
+            protocol = ProxyProtocol.SSH,
+            serverAddress = "ssh.example.org",
+            serverPort = 22,
+            username = "u",
+            password = "p",
+            chainProxyId = validEntry.id,
+        )
+        assertTrue(XrayConfigBuilder.validateProfile(sshAsExit, listOf(validEntry, sshAsExit)).any { it.isError })
+
+        val tuicAsExit = com.example.core.model.ProxyProfile(
+            id = 506L,
+            name = "TUIC Exit",
+            protocol = ProxyProtocol.TUIC,
+            serverAddress = "tuic.example.org",
+            serverPort = 443,
+            uuid = "00000000-0000-4000-8000-000000000001",
+            password = "p",
+            chainProxyId = validEntry.id,
+        )
+        assertTrue(XrayConfigBuilder.validateProfile(tuicAsExit, listOf(validEntry, tuicAsExit)).any { it.isError })
+    }
+
+    @Test
+    fun `room v5 migration adds chainProxyId and repository clears dangling chain refs on delete`() {
+        val ctx = androidx.test.core.app.ApplicationProvider.getApplicationContext<android.content.Context>()
+
+        // 1. Verify MIGRATION_4_5 SQL alters a v4 proxy_profiles table cleanly
+        val sqliteHelper = object : android.database.sqlite.SQLiteOpenHelper(ctx, null, null, 4) {
+            override fun onCreate(db: android.database.sqlite.SQLiteDatabase) {
+                db.execSQL("CREATE TABLE proxy_profiles (id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, name TEXT NOT NULL)")
+                db.execSQL("INSERT INTO proxy_profiles (id, name) VALUES (1, 'Legacy Node')")
+            }
+            override fun onUpgrade(db: android.database.sqlite.SQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
+        }
+        val rawDb = sqliteHelper.writableDatabase
+        try {
+            val supportDb = androidx.sqlite.db.framework.FrameworkSQLiteOpenHelperFactory()
+                .create(
+                    androidx.sqlite.db.SupportSQLiteOpenHelper.Configuration.builder(ctx)
+                        .name(null)
+                        .callback(object : androidx.sqlite.db.SupportSQLiteOpenHelper.Callback(4) {
+                            override fun onCreate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                                db.execSQL("CREATE TABLE proxy_profiles (id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, name TEXT NOT NULL)")
+                                db.execSQL("INSERT INTO proxy_profiles (id, name) VALUES (1, 'Legacy Node')")
+                            }
+                            override fun onUpgrade(db: androidx.sqlite.db.SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
+                        })
+                        .build()
+                ).writableDatabase
+            com.example.data.local.NekoDatabase.MIGRATION_4_5.migrate(supportDb)
+            supportDb.query("SELECT chainProxyId FROM proxy_profiles WHERE id = 1").use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals(0L, cursor.getLong(0))
+            }
+            supportDb.close()
+        } finally {
+            rawDb.close()
+            sqliteHelper.close()
+        }
+
+        // 2. Verify Room DB v5 persists chainProxyId and clears references when upstream profile is deleted
+        val db = androidx.room.Room.inMemoryDatabaseBuilder(ctx, com.example.data.local.NekoDatabase::class.java)
+            .allowMainThreadQueries()
+            .build()
+        try {
+            kotlinx.coroutines.runBlocking {
+                val entryId = db.profileDao().insert(
+                    com.example.data.local.ProfileEntity.fromDomain(
+                        com.example.core.model.ProxyProfile(
+                            name = "Entry Node",
+                            protocol = ProxyProtocol.SOCKS5,
+                            serverAddress = "198.51.100.1",
+                            serverPort = 1080,
+                        )
+                    )
+                )
+                val exitId = db.profileDao().insert(
+                    com.example.data.local.ProfileEntity.fromDomain(
+                        com.example.core.model.ProxyProfile(
+                            name = "Exit Node",
+                            protocol = ProxyProtocol.SOCKS5,
+                            serverAddress = "198.51.100.2",
+                            serverPort = 1080,
+                            chainProxyId = entryId,
+                        )
+                    )
+                )
+                val loadedExit = db.profileDao().getById(exitId)?.toDomain()
+                assertNotNull(loadedExit)
+                assertEquals(entryId, loadedExit!!.chainProxyId)
+
+                db.profileDao().clearChainReferences(entryId)
+                db.profileDao().deleteById(entryId)
+
+                val updatedExit = db.profileDao().getById(exitId)?.toDomain()
+                assertNotNull(updatedExit)
+                assertEquals(0L, updatedExit!!.chainProxyId)
+            }
         } finally {
             db.close()
         }

@@ -176,6 +176,9 @@ data class ProxyProfile(
     val muxConcurrency: Int = 8,
     val packetEncoding: String = "xudp",
 
+    // Proxy Chain (upstream / entry dialerProxy profile ID; 0 = direct)
+    val chainProxyId: Long = 0L,
+
     // Custom Raw Xray Config JSON
     val customConfigJson: String = "",
 

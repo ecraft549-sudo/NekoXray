@@ -13,7 +13,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         GroupEntity::class,
         RoutingRuleEntity::class,
     ],
-    version = 4,
+    version = 5,
     exportSchema = false,
 )
 abstract class NekoDatabase : RoomDatabase() {
@@ -57,6 +57,12 @@ abstract class NekoDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE proxy_profiles ADD COLUMN chainProxyId INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
         @Volatile
         private var INSTANCE: NekoDatabase? = null
 
@@ -66,7 +72,7 @@ abstract class NekoDatabase : RoomDatabase() {
                     context.applicationContext,
                     NekoDatabase::class.java,
                     "nekoxray.db",
-                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
                     .fallbackToDestructiveMigration(dropAllTables = true)
                     .build()
                     .also { INSTANCE = it }

@@ -19,6 +19,7 @@ import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.QrCode2
 import androidx.compose.material.icons.filled.Shield
@@ -50,6 +51,7 @@ import com.example.core.model.ProxyProfile
 import com.example.core.model.ProxyProtocol
 import com.example.core.model.SecurityType
 import com.example.core.model.SshAuthType
+import com.example.core.xray.XrayConfigBuilder
 import com.example.ui.i18n.LocalAppStrings
 import com.example.ui.theme.SignalAmber
 import com.example.ui.theme.SignalCrimson
@@ -93,6 +95,7 @@ fun ProxyProfileCard(
     onDuplicate: () -> Unit,
     onDelete: () -> Unit,
     modifier: Modifier = Modifier,
+    allProfiles: List<ProxyProfile> = emptyList(),
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
     val strings = LocalAppStrings.current
@@ -159,6 +162,7 @@ fun ProxyProfileCard(
                     LatencyBadge(
                         latencyMs = profile.latencyMs,
                         tlsLatencyMs = profile.tlsLatencyMs,
+                        isChained = profile.chainProxyId > 0L,
                     )
                 }
 
@@ -339,6 +343,22 @@ fun ProxyProfileCard(
                             )
                         }
                     }
+                    ProxyProtocol.SOCKS5 -> {
+                        if (profile.username.isNotBlank()) {
+                            TagPill(
+                                text = "AUTH",
+                                containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                                contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                    ProxyProtocol.WIREGUARD -> {
+                        TagPill(
+                            text = "UDP",
+                            containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                            contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                     else -> {
                         TagPill(
                             text = profile.transport.wireValue.uppercase(),
@@ -363,13 +383,61 @@ fun ProxyProfileCard(
                         contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
+
+                if (profile.chainProxyId > 0L) {
+                    val chain = remember(profile, allProfiles) {
+                        XrayConfigBuilder.resolveChain(profile, allProfiles)
+                    }
+                    val chainBroken = chain.hasCycle || chain.missingTargetId != null || chain.unsupportedHopName != null
+                    val badgeContainer = if (chainBroken) {
+                        SignalCrimson.copy(alpha = 0.16f)
+                    } else {
+                        MaterialTheme.colorScheme.tertiary.copy(alpha = 0.16f)
+                    }
+                    val badgeContent = if (chainBroken) SignalCrimson else MaterialTheme.colorScheme.tertiary
+                    val chainText = when {
+                        chainBroken -> "CHAIN!"
+                        chain.hops.size == 2 -> "${strings.chainViaPrefix} ${chain.hops[1].displayTitle()}"
+                        chain.hops.size > 2 -> "${chain.hops.size}× ${strings.chainViaPrefix} ${chain.hops.last().displayTitle()}"
+                        else -> "CHAIN"
+                    }
+                    Surface(
+                        color = badgeContainer,
+                        contentColor = badgeContent,
+                        shape = RoundedCornerShape(6.dp),
+                        modifier = Modifier.testTag("profile_chain_badge_${profile.id}"),
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Link,
+                                contentDescription = null,
+                                modifier = Modifier.size(11.dp),
+                            )
+                            Text(
+                                text = chainText,
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
+                }
             }
         }
     }
 }
 
 @Composable
-private fun LatencyBadge(latencyMs: Int?, tlsLatencyMs: Int?) {
+private fun LatencyBadge(
+    latencyMs: Int?,
+    tlsLatencyMs: Int?,
+    isChained: Boolean = false,
+) {
     val primaryMs = latencyMs ?: tlsLatencyMs ?: return
     val color = when {
         primaryMs < 150 -> SignalEmerald
@@ -379,6 +447,7 @@ private fun LatencyBadge(latencyMs: Int?, tlsLatencyMs: Int?) {
     val label = when {
         latencyMs != null && tlsLatencyMs != null -> "${latencyMs}ms · TLS ${tlsLatencyMs}ms"
         latencyMs != null -> "${latencyMs}ms"
+        isChained -> "CHAIN ${tlsLatencyMs}ms"
         else -> "QUIC ${tlsLatencyMs}ms"
     }
     Surface(

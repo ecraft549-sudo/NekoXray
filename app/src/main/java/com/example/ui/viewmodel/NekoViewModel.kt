@@ -143,9 +143,10 @@ class NekoViewModel(application: Application) : AndroidViewModel(application) {
                 runtime.status == TunnelStatus.CONNECTING
 
             if (isRunning && runtime.activeProfileId != id) {
-                val target = repo.getProfile(id) ?: uiState.value.profiles.find { it.id == id }
+                val allProfiles = repo.profilesFlow.first()
+                val target = repo.getProfile(id) ?: allProfiles.find { it.id == id }
                 if (target != null) {
-                    val issues = XrayConfigBuilder.validateProfile(target).filter { it.isError }
+                    val issues = XrayConfigBuilder.validateProfile(target, allProfiles).filter { it.isError }
                     if (issues.isNotEmpty()) {
                         repo.setSelectedProfileId(prevSelectedId)
                         _events.emit(issues.first().message)
@@ -154,7 +155,12 @@ class NekoViewModel(application: Application) : AndroidViewModel(application) {
                     }
                     val latestSettings = repo.settingsFlow.first()
                     val latestRules = repo.routingRulesFlow.first()
-                    startTunnelWith(profile = target, settings = latestSettings, rules = latestRules)
+                    startTunnelWith(
+                        profile = target,
+                        settings = latestSettings,
+                        rules = latestRules,
+                        allProfiles = allProfiles,
+                    )
                     val strings = resolveAppStrings(latestSettings.appLanguage)
                     _events.emit("${strings.switchedProfilePrefix} '${target.displayTitle()}'.")
                 }
@@ -244,11 +250,19 @@ class NekoViewModel(application: Application) : AndroidViewModel(application) {
             val id = repo.saveProfile(profile)
             if (uiState.value.selectedProfileId == 0L || profile.id == 0L) {
                 repo.setSelectedProfileId(id)
-            } else if (XrayEngineState.state.value.activeProfileId == id &&
-                (XrayEngineState.state.value.status == TunnelStatus.CONNECTED ||
-                    XrayEngineState.state.value.status == TunnelStatus.CONNECTING)
-            ) {
-                reloadTunnelIfActive()
+            } else {
+                val runtime = XrayEngineState.state.value
+                val isRunning = runtime.status == TunnelStatus.CONNECTED ||
+                    runtime.status == TunnelStatus.CONNECTING
+                if (isRunning) {
+                    val latestProfiles = repo.profilesFlow.first()
+                    val activeProfile = latestProfiles.find { it.id == runtime.activeProfileId }
+                    val inActiveChain = activeProfile != null &&
+                        XrayConfigBuilder.resolveChain(activeProfile, latestProfiles).hops.any { it.id == id }
+                    if (runtime.activeProfileId == id || inActiveChain) {
+                        reloadTunnelIfActive()
+                    }
+                }
             }
             NekoWidgetManager.refreshAll(getApplication())
             _events.emit("Saved '${profile.displayTitle()}'.")
@@ -278,9 +292,13 @@ class NekoViewModel(application: Application) : AndroidViewModel(application) {
             val (tcp, tls) = repo.testProfileLatency(profile)
             transient.update { it.copy(testingProfileIds = it.testingProfileIds - profile.id) }
             val msg = if (tcp != null || tls != null) {
-                val tcpInfo = if (tcp != null) "TCP ${tcp}ms" else "QUIC"
-                val tlsInfo = if (tls != null) " · Xray ${tls}ms" else ""
-                "${profile.displayTitle()}: $tcpInfo$tlsInfo"
+                if (profile.chainProxyId > 0L && tcp == null) {
+                    "${profile.displayTitle()}: Chain ${tls}ms"
+                } else {
+                    val tcpInfo = if (tcp != null) "TCP ${tcp}ms" else "QUIC"
+                    val tlsInfo = if (tls != null) " · Xray ${tls}ms" else ""
+                    "${profile.displayTitle()}: $tcpInfo$tlsInfo"
+                }
             } else {
                 "${profile.displayTitle()}: Unreachable / Timeout"
             }
@@ -403,12 +421,19 @@ class NekoViewModel(application: Application) : AndroidViewModel(application) {
         if (status != TunnelStatus.CONNECTED && status != TunnelStatus.CONNECTING) {
             return false
         }
-        val current = uiState.value
+        val latestProfiles = repo.profilesFlow.first()
         val activeId = XrayEngineState.state.value.activeProfileId
-        val profile = current.profiles.find { it.id == activeId } ?: current.activeProfile ?: return false
+        val profile = latestProfiles.find { it.id == activeId }
+            ?: uiState.value.activeProfile
+            ?: return false
         val latestSettings = repo.settingsFlow.first()
         val latestRules = repo.routingRulesFlow.first()
-        startTunnelWith(profile = profile, settings = latestSettings, rules = latestRules)
+        startTunnelWith(
+            profile = profile,
+            settings = latestSettings,
+            rules = latestRules,
+            allProfiles = latestProfiles,
+        )
         return true
     }
 
@@ -439,11 +464,12 @@ class NekoViewModel(application: Application) : AndroidViewModel(application) {
             includeTunInbound = includeTunInbound,
             hasGeoIp = geo.hasGeoIp,
             hasGeoSite = geo.hasGeoSite,
+            allProfiles = uiState.value.profiles,
         )
     }
 
     fun validateProfile(profile: ProxyProfile): List<ConfigValidationIssue> =
-        XrayConfigBuilder.validateProfile(profile)
+        XrayConfigBuilder.validateProfile(profile, uiState.value.profiles)
 
     fun toggleConnection(
         onRequestVpnPermission: (Intent) -> Unit,
@@ -469,7 +495,7 @@ class NekoViewModel(application: Application) : AndroidViewModel(application) {
             return
         }
 
-        val issues = XrayConfigBuilder.validateProfile(profile).filter { it.isError }
+        val issues = XrayConfigBuilder.validateProfile(profile, current.profiles).filter { it.isError }
         if (issues.isNotEmpty()) {
             viewModelScope.launch { _events.emit(issues.first().message) }
             return
@@ -493,6 +519,7 @@ class NekoViewModel(application: Application) : AndroidViewModel(application) {
             settings = current.settings,
             rules = current.routingRules,
             forceProxyOnly = forceProxyOnly,
+            allProfiles = current.profiles,
         )
     }
 
@@ -501,6 +528,7 @@ class NekoViewModel(application: Application) : AndroidViewModel(application) {
         settings: XraySettings,
         rules: List<RoutingRule>,
         forceProxyOnly: Boolean = false,
+        allProfiles: List<ProxyProfile> = uiState.value.profiles,
     ) {
         val app = getApplication<Application>()
         val intent = NekoWidgetManager.buildStartServiceIntent(
@@ -509,6 +537,7 @@ class NekoViewModel(application: Application) : AndroidViewModel(application) {
             settings = settings,
             rules = rules,
             forceProxyOnly = forceProxyOnly,
+            allProfiles = allProfiles,
         )
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
             app.startForegroundService(intent)

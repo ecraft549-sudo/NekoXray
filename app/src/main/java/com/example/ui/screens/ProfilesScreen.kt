@@ -220,6 +220,7 @@ fun ProfilesScreen(
                 items(state.visibleProfiles, key = { it.id }) { profile ->
                     ProxyProfileCard(
                         profile = profile,
+                        allProfiles = state.profiles,
                         isSelected = profile.id == state.activeProfile?.id,
                         isTesting = profile.id in state.testingProfileIds,
                         onSelect = { onSelectProfile(profile.id) },
@@ -484,6 +485,8 @@ private fun EngineStatusBanner(
                             Triple(strings.newHysteria2, ProxyProtocol.HYSTERIA2, Icons.Default.Dns),
                             Triple(strings.newTuic, ProxyProtocol.TUIC, Icons.Default.Dns),
                             Triple(strings.newWireGuard, ProxyProtocol.WIREGUARD, Icons.Default.Dns),
+                            Triple(strings.newSocks5, ProxyProtocol.SOCKS5, Icons.Default.Dns),
+                            Triple(strings.newHttpProxy, ProxyProtocol.HTTP, Icons.Default.Dns),
                             Triple(strings.newSshTunnel, ProxyProtocol.SSH, Icons.Default.Terminal),
                             Triple(strings.customXrayJson, ProxyProtocol.CUSTOM_JSON, Icons.Default.Code),
                         )

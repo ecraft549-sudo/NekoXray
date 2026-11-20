@@ -18,6 +18,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Code
+import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.VerifiedUser
@@ -36,6 +37,7 @@ import androidx.compose.material3.MenuAnchorType
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -74,6 +76,7 @@ fun ProfileEditorScreen(
     profileId: Long,
     initialProtocol: String,
     defaultGroupId: Long,
+    allProfiles: List<ProxyProfile> = emptyList(),
     loadProfile: suspend (Long) -> ProxyProfile?,
     onSave: (ProxyProfile) -> Unit,
     onPreviewConfig: (ProxyProfile) -> Unit,
@@ -88,7 +91,12 @@ fun ProfileEditorScreen(
             ProxyProfile(
                 groupId = if (defaultGroupId > 0L) defaultGroupId else 1L,
                 protocol = startProto,
-                serverPort = if (startProto == ProxyProtocol.SSH) 22 else 443,
+                serverPort = when (startProto) {
+                    ProxyProtocol.SSH -> 22
+                    ProxyProtocol.SOCKS5 -> 1080
+                    ProxyProtocol.HTTP -> 8080
+                    else -> 443
+                },
                 username = if (startProto == ProxyProtocol.SSH) "root" else "",
                 uuid = if (startProto == ProxyProtocol.TUIC && profileId == 0L) RealityKeyGenerator.generateUuid() else "",
                 security = when (startProto) {
@@ -114,7 +122,7 @@ fun ProfileEditorScreen(
         }
     }
 
-    val issues = remember(profile) { XrayConfigBuilder.validateProfile(profile) }
+    val issues = remember(profile, allProfiles) { XrayConfigBuilder.validateProfile(profile, allProfiles) }
 
     Scaffold(
         topBar = {
@@ -189,9 +197,20 @@ fun ProfileEditorScreen(
                 selected = profile.protocol.displayName,
                 options = ProxyProtocol.entries.map { it to it.displayName },
                 onSelect = { proto ->
+                    val defaultPorts = setOf(22, 443, 1080, 8080)
+                    val nextPort = if (profile.serverPort in defaultPorts) {
+                        when (proto) {
+                            ProxyProtocol.SSH -> 22
+                            ProxyProtocol.SOCKS5 -> 1080
+                            ProxyProtocol.HTTP -> 8080
+                            else -> 443
+                        }
+                    } else {
+                        profile.serverPort
+                    }
                     profile = profile.copy(
                         protocol = proto,
-                        serverPort = if (proto == ProxyProtocol.SSH && profile.serverPort == 443) 22 else if (proto != ProxyProtocol.SSH && profile.serverPort == 22) 443 else profile.serverPort,
+                        serverPort = nextPort,
                         username = if (proto == ProxyProtocol.SSH && profile.username.isBlank()) "root" else profile.username,
                         uuid = if ((proto == ProxyProtocol.TUIC || proto == ProxyProtocol.VLESS || proto == ProxyProtocol.VMESS) && profile.uuid.isBlank()) {
                             RealityKeyGenerator.generateUuid()
@@ -211,6 +230,7 @@ fun ProfileEditorScreen(
                             profile.alpn
                         },
                         flow = if (proto == ProxyProtocol.VLESS) profile.flow else FlowType.NONE,
+                        chainProxyId = if (proto in listOf(ProxyProtocol.SSH, ProxyProtocol.TUIC, ProxyProtocol.CUSTOM_JSON)) 0L else profile.chainProxyId,
                     )
                 },
             )
@@ -961,6 +981,130 @@ fun ProfileEditorScreen(
                         )
                     }
                 }
+
+                // Proxy Chain (Dialer Proxy) Section
+                Card(
+                    colors = CardDefaults.cardColors(
+                        containerColor = if (profile.chainProxyId > 0L) {
+                            MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.32f)
+                        } else {
+                            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                        },
+                    ),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Column(
+                        modifier = Modifier.padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.Link,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.tertiary,
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                text = strings.chainSectionTitle,
+                                style = MaterialTheme.typography.titleMedium,
+                            )
+                        }
+
+                        if (profile.protocol in listOf(ProxyProtocol.SSH, ProxyProtocol.TUIC)) {
+                            Text(
+                                text = strings.chainUnsupportedExitHint,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            if (profile.chainProxyId > 0L) {
+                                OutlinedButton(
+                                    onClick = { profile = profile.copy(chainProxyId = 0L) },
+                                    modifier = Modifier.fillMaxWidth(),
+                                ) {
+                                    Text(strings.chainNoneOption)
+                                }
+                            }
+                        } else {
+                            val eligibleEntries = remember(allProfiles, profile.id) {
+                                allProfiles.filter { candidate ->
+                                    candidate.id > 0L &&
+                                        candidate.id != profile.id &&
+                                        candidate.protocol != ProxyProtocol.CUSTOM_JSON &&
+                                        !XrayConfigBuilder.wouldCreateCycle(profile.id, candidate.id, allProfiles)
+                                }
+                            }
+                            val selectedEntry = allProfiles.find { it.id == profile.chainProxyId }
+                            val selectedChainLabel = when {
+                                profile.chainProxyId <= 0L -> strings.chainNoneOption
+                                selectedEntry != null -> "${selectedEntry.displayTitle()} (${selectedEntry.protocol.displayName})"
+                                else -> "#${profile.chainProxyId}"
+                            }
+                            val chainOptions = buildList {
+                                add(0L to strings.chainNoneOption)
+                                eligibleEntries.forEach { p ->
+                                    add(p.id to "${p.displayTitle()} (${p.protocol.displayName})")
+                                }
+                            }
+
+                            EnumDropdown(
+                                label = strings.chainProxyLabel,
+                                selected = selectedChainLabel,
+                                options = chainOptions,
+                                onSelect = { chosenId -> profile = profile.copy(chainProxyId = chosenId) },
+                                fieldTestTag = "editor_chain_proxy_dropdown",
+                            )
+
+                            Text(
+                                text = strings.chainHint,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+
+                            if (profile.chainProxyId > 0L) {
+                                val resolved = remember(profile, allProfiles) {
+                                    XrayConfigBuilder.resolveChain(profile, allProfiles)
+                                }
+                                if (resolved.hops.size > 1 && !resolved.hasCycle) {
+                                    val pathStr = buildString {
+                                        append(strings.chainDeviceLabel)
+                                        resolved.hops.reversed().forEach { hop ->
+                                            append(" → ")
+                                            append(hop.displayTitle())
+                                            append(" (")
+                                            append(hop.protocol.displayName)
+                                            append(")")
+                                        }
+                                        append(" → ")
+                                        append(strings.chainInternetLabel)
+                                    }
+                                    Surface(
+                                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.72f),
+                                        shape = MaterialTheme.shapes.small,
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .testTag("editor_chain_path_preview"),
+                                    ) {
+                                        Column(
+                                            modifier = Modifier.padding(10.dp),
+                                            verticalArrangement = Arrangement.spacedBy(2.dp),
+                                        ) {
+                                            Text(
+                                                text = strings.chainTrafficPathLabel,
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.tertiary,
+                                            )
+                                            Text(
+                                                text = pathStr,
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurface,
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
 
             if (issues.isNotEmpty()) {
@@ -1012,6 +1156,7 @@ private fun <T> EnumDropdown(
     selected: String,
     options: List<Pair<T, String>>,
     onSelect: (T) -> Unit,
+    fieldTestTag: String? = null,
 ) {
     var expanded by remember { mutableStateOf(false) }
     ExposedDropdownMenuBox(
@@ -1026,7 +1171,8 @@ private fun <T> EnumDropdown(
             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
             modifier = Modifier
                 .fillMaxWidth()
-                .menuAnchor(MenuAnchorType.PrimaryNotEditable),
+                .menuAnchor(MenuAnchorType.PrimaryNotEditable)
+                .then(if (fieldTestTag != null) Modifier.testTag(fieldTestTag) else Modifier),
         )
         ExposedDropdownMenu(
             expanded = expanded,

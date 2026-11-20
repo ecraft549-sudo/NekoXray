@@ -54,16 +54,31 @@ object NekoWidgetManager {
     var lastKnownLanguage: com.example.core.model.AppLanguage = com.example.core.model.AppLanguage.SYSTEM
         private set
 
-    fun formatProtocolLabel(profile: ProxyProfile): String = when (profile.protocol) {
-        com.example.core.model.ProxyProtocol.HYSTERIA2 -> "Hysteria 2 · QUIC · TLS"
-        com.example.core.model.ProxyProtocol.TUIC -> "TUIC v5 · QUIC · TLS"
-        com.example.core.model.ProxyProtocol.SSH -> "SSH"
-        com.example.core.model.ProxyProtocol.WIREGUARD -> "WireGuard · UDP"
-        else -> buildString {
-            append(profile.protocol.displayName)
-            if (profile.isReality) append(" · REALITY")
-            else if (profile.security.wireValue != "none") append(" · ${profile.security.displayName}")
-            append(" · ${profile.transport.wireValue.uppercase()}")
+    fun formatProtocolLabel(
+        profile: ProxyProfile,
+        allProfiles: List<ProxyProfile> = emptyList(),
+    ): String {
+        val baseLabel = when (profile.protocol) {
+            com.example.core.model.ProxyProtocol.HYSTERIA2 -> "Hysteria 2 · QUIC · TLS"
+            com.example.core.model.ProxyProtocol.TUIC -> "TUIC v5 · QUIC · TLS"
+            com.example.core.model.ProxyProtocol.SSH -> "SSH"
+            com.example.core.model.ProxyProtocol.WIREGUARD -> "WireGuard · UDP"
+            com.example.core.model.ProxyProtocol.SOCKS5 -> "SOCKS5"
+            else -> buildString {
+                append(profile.protocol.displayName)
+                if (profile.isReality) append(" · REALITY")
+                else if (profile.security.wireValue != "none") append(" · ${profile.security.displayName}")
+                append(" · ${profile.transport.wireValue.uppercase()}")
+            }
+        }
+        if (profile.chainProxyId <= 0L || allProfiles.isEmpty()) return baseLabel
+        val chain = XrayConfigBuilder.resolveChain(profile, allProfiles)
+        if (chain.hops.size <= 1) return baseLabel
+        val entry = chain.hops.last()
+        return if (chain.hops.size == 2) {
+            "${entry.protocol.displayName} → ${profile.protocol.displayName}"
+        } else {
+            "${entry.protocol.displayName} → ${chain.hops.size - 2}× → ${profile.protocol.displayName}"
         }
     }
 
@@ -73,9 +88,11 @@ object NekoWidgetManager {
         settings: XraySettings,
         rules: List<RoutingRule>,
         forceProxyOnly: Boolean = false,
+        allProfiles: List<ProxyProfile> = emptyList(),
     ): Intent {
         val isProxyOnly = forceProxyOnly || settings.serviceMode == ServiceMode.PROXY_ONLY
         val geo = com.example.core.xray.XrayAssetHelper.currentStatus(context)
+        val chainHops = XrayConfigBuilder.resolveChain(profile, allProfiles).hops
         val configJson = XrayConfigBuilder.buildConfigJson(
             profile = profile,
             settings = settings,
@@ -83,11 +100,12 @@ object NekoWidgetManager {
             includeTunInbound = !isProxyOnly,
             hasGeoIp = geo.hasGeoIp,
             hasGeoSite = geo.hasGeoSite,
+            allProfiles = chainHops,
         )
         return XrayVpnService.buildStartIntent(
             context = context,
             profile = profile,
-            protocolLabel = formatProtocolLabel(profile),
+            protocolLabel = formatProtocolLabel(profile, allProfiles),
             configJson = configJson,
             mtu = settings.mtu,
             bypassLan = settings.bypassLan,
@@ -99,6 +117,7 @@ object NekoWidgetManager {
             perAppPackages = settings.perAppPackages,
             settings = settings,
             rules = rules,
+            chainProfiles = chainHops,
         )
     }
 
@@ -108,8 +127,9 @@ object NekoWidgetManager {
         settings: XraySettings,
         rules: List<RoutingRule>,
         openActivityIfPermissionNeeded: Boolean = true,
+        allProfiles: List<ProxyProfile> = emptyList(),
     ): Boolean {
-        val issues = XrayConfigBuilder.validateProfile(profile).filter { it.isError }
+        val issues = XrayConfigBuilder.validateProfile(profile, allProfiles).filter { it.isError }
         if (issues.isNotEmpty()) {
             if (openActivityIfPermissionNeeded) {
                 launchMainActivity(context, autoConnect = false)
@@ -122,7 +142,13 @@ object NekoWidgetManager {
             }
             return false
         }
-        val intent = buildStartServiceIntent(context, profile, settings, rules)
+        val intent = buildStartServiceIntent(
+            context = context,
+            profile = profile,
+            settings = settings,
+            rules = rules,
+            allProfiles = allProfiles,
+        )
         val started = runCatching {
             ContextCompat.startForegroundService(context, intent)
         }.isSuccess
@@ -166,10 +192,10 @@ object NekoWidgetManager {
                 }
                 val strings = resolveAppStrings(settings.appLanguage)
 
-                updateStatusWidgets(appContext, runtime, targetProfile, strings)
+                updateStatusWidgets(appContext, runtime, targetProfile, strings, allProfiles = profiles)
                 updateCompactWidgets(appContext, runtime, targetProfile, strings)
                 updateMiniWidgets(appContext, runtime, targetProfile, strings)
-                updateTrayNotification(appContext, runtime, targetProfile, settings, strings)
+                updateTrayNotification(appContext, runtime, targetProfile, settings, strings, allProfiles = profiles)
                 requestTileRefresh(appContext)
             }
         }
@@ -181,6 +207,7 @@ object NekoWidgetManager {
         profile: ProxyProfile?,
         strings: AppStrings,
         specificIds: IntArray? = null,
+        allProfiles: List<ProxyProfile> = emptyList(),
     ) {
         val mgr = AppWidgetManager.getInstance(context)
         val ids = specificIds ?: mgr.getAppWidgetIds(ComponentName(context, NekoStatusWidgetProvider::class.java))
@@ -238,8 +265,8 @@ object NekoWidgetManager {
         }
         val subtitle = when {
             runtime.status == TunnelStatus.CONNECTED || runtime.status == TunnelStatus.CONNECTING ->
-                runtime.activeProtocolLabel.ifBlank { profile?.let(::formatProtocolLabel) ?: "Xray-core" }
-            profile != null -> formatProtocolLabel(profile)
+                runtime.activeProtocolLabel.ifBlank { profile?.let { formatProtocolLabel(it, allProfiles) } ?: "Xray-core" }
+            profile != null -> formatProtocolLabel(profile, allProfiles)
             else -> strings.widgetNoProfileSubtitle
         }
         val telemetry = when (runtime.status) {
@@ -391,6 +418,7 @@ object NekoWidgetManager {
         profile: ProxyProfile?,
         settings: XraySettings,
         strings: AppStrings,
+        allProfiles: List<ProxyProfile> = emptyList(),
     ) {
         val mgr = context.getSystemService(NotificationManager::class.java) ?: return
         val isTunnelRunning = runtime.status == TunnelStatus.CONNECTED || runtime.status == TunnelStatus.CONNECTING
@@ -418,7 +446,7 @@ object NekoWidgetManager {
 
         val remote = RemoteViews(context.packageName, R.layout.notification_tray_widget)
         val profileTitle = profile?.displayTitle() ?: strings.widgetNoProfileTitle
-        val proto = profile?.let(::formatProtocolLabel) ?: strings.widgetNoProfileSubtitle
+        val proto = profile?.let { formatProtocolLabel(it, allProfiles) } ?: strings.widgetNoProfileSubtitle
 
         remote.setTextViewText(R.id.tray_title, "$profileTitle · ${strings.statusReady}")
         remote.setTextViewText(R.id.tray_subtitle, "$proto · ${strings.widgetTapToConnect}")

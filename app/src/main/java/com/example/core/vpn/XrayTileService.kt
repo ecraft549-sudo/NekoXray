@@ -78,7 +78,7 @@ class XrayTileService : TileService() {
                     status = TunnelStatus.CONNECTING,
                     profileId = target.id,
                     profileName = target.displayTitle(),
-                    protocolLabel = NekoWidgetManager.formatProtocolLabel(target),
+                    protocolLabel = NekoWidgetManager.formatProtocolLabel(target, profiles),
                     isReality = target.isReality,
                 )
                 val started = NekoWidgetManager.startTunnelFromContext(
@@ -87,6 +87,7 @@ class XrayTileService : TileService() {
                     settings = settings,
                     rules = rules,
                     openActivityIfPermissionNeeded = false,
+                    allProfiles = profiles,
                 )
                 if (!started) {
                     XrayEngineState.updateStatus(status = TunnelStatus.IDLE)

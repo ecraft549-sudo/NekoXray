@@ -93,6 +93,7 @@ class XrayVpnService : VpnService() {
         const val EXTRA_HTTP_PORT = "http_port"
         const val EXTRA_PER_APP_MODE = "per_app_mode"
         const val EXTRA_PER_APP_PACKAGES = "per_app_packages"
+        const val EXTRA_CHAIN_PROFILES_JSON = "chain_profiles_json"
 
         private const val CHANNEL_ID = "nekoxray_vpn_channel"
         private const val NOTIFICATION_ID = 1042
@@ -113,6 +114,7 @@ class XrayVpnService : VpnService() {
             perAppPackages: Set<String> = emptySet(),
             settings: XraySettings = XraySettings(),
             rules: List<RoutingRule> = emptyList(),
+            chainProfiles: List<ProxyProfile> = emptyList(),
         ): Intent = Intent(context, XrayVpnService::class.java).apply {
             action = ACTION_START
             putExtra(EXTRA_SELF_INITIATED, true)
@@ -124,6 +126,12 @@ class XrayVpnService : VpnService() {
             putExtra(EXTRA_PROFILE_JSON, json.encodeToString(ProxyProfile.serializer(), profile))
             putExtra(EXTRA_SETTINGS_JSON, json.encodeToString(XraySettings.serializer(), settings))
             putExtra(EXTRA_RULES_JSON, json.encodeToString(kotlinx.serialization.builtins.ListSerializer(RoutingRule.serializer()), rules))
+            if (chainProfiles.isNotEmpty()) {
+                putExtra(
+                    EXTRA_CHAIN_PROFILES_JSON,
+                    json.encodeToString(kotlinx.serialization.builtins.ListSerializer(ProxyProfile.serializer()), chainProfiles),
+                )
+            }
             putExtra(EXTRA_MTU, mtu)
             putExtra(EXTRA_BYPASS_LAN, bypassLan)
             putExtra(EXTRA_PROXY_ONLY, proxyOnly)
@@ -315,6 +323,7 @@ class XrayVpnService : VpnService() {
         val httpPort: Int,
         val perAppMode: PerAppProxyMode,
         val perAppPackages: Set<String>,
+        val chainProfiles: List<ProxyProfile> = emptyList(),
     )
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -962,7 +971,8 @@ class XrayVpnService : VpnService() {
                     savedSettings
                 }
                 val proxyOnly = effectiveSettings.serviceMode == ServiceMode.PROXY_ONLY
-                val protocolLabel = NekoWidgetManager.formatProtocolLabel(profile)
+                val chainHops = XrayConfigBuilder.resolveChain(profile, profiles).hops
+                val protocolLabel = NekoWidgetManager.formatProtocolLabel(profile, profiles)
                 val configJson = XrayConfigBuilder.buildConfigJson(
                     profile = profile,
                     settings = effectiveSettings,
@@ -970,6 +980,7 @@ class XrayVpnService : VpnService() {
                     includeTunInbound = !proxyOnly,
                     hasGeoIp = geo.hasGeoIp,
                     hasGeoSite = geo.hasGeoSite,
+                    allProfiles = chainHops,
                 )
 
                 if (bootstrapToken != activeSessionToken.get()) return@launch
@@ -989,6 +1000,7 @@ class XrayVpnService : VpnService() {
                     perAppPackages = effectiveSettings.perAppPackages,
                     settings = effectiveSettings,
                     rules = rules,
+                    chainProfiles = chainHops,
                 )
                 lastStartIntent = constructedIntent
                 XrayEngineState.appendLog(
@@ -1009,6 +1021,7 @@ class XrayVpnService : VpnService() {
                     httpPort = effectiveSettings.httpPort,
                     perAppMode = effectiveSettings.perAppMode,
                     perAppPackages = effectiveSettings.perAppPackages,
+                    chainProfiles = chainHops,
                 )
             }.onFailure { err ->
                 if (err !is CancellationException && bootstrapToken == activeSessionToken.get()) {
@@ -1061,6 +1074,17 @@ class XrayVpnService : VpnService() {
             PerAppProxyMode.valueOf(intent.getStringExtra(EXTRA_PER_APP_MODE) ?: PerAppProxyMode.ALL.name)
         }.getOrDefault(PerAppProxyMode.ALL)
         val perAppPackages = intent.getStringArrayListExtra(EXTRA_PER_APP_PACKAGES)?.toSet() ?: emptySet()
+        val chainProfilesJson = intent.getStringExtra(EXTRA_CHAIN_PROFILES_JSON).orEmpty()
+        val chainProfiles = runCatching {
+            if (chainProfilesJson.isNotBlank()) {
+                json.decodeFromString(
+                    kotlinx.serialization.builtins.ListSerializer(ProxyProfile.serializer()),
+                    chainProfilesJson,
+                )
+            } else {
+                emptyList()
+            }
+        }.getOrDefault(emptyList())
 
         startForeground(
             NOTIFICATION_ID,
@@ -1087,6 +1111,7 @@ class XrayVpnService : VpnService() {
             httpPort = httpPort,
             perAppMode = perAppMode,
             perAppPackages = perAppPackages,
+            chainProfiles = chainProfiles,
         )
     }
 
@@ -1113,7 +1138,9 @@ class XrayVpnService : VpnService() {
             )
         }
 
-        val enableTunIpv6 = if (spec.profile.protocol == ProxyProtocol.SSH) {
+        val hasSshInChain = spec.profile.protocol == ProxyProtocol.SSH ||
+            spec.chainProfiles.any { it.protocol == ProxyProtocol.SSH }
+        val enableTunIpv6 = if (hasSshInChain) {
             spec.ipv6Mode == IPv6Mode.ONLY || spec.ipv6Mode == IPv6Mode.PREFER
         } else {
             spec.ipv6Mode != IPv6Mode.DISABLE
@@ -1204,6 +1231,7 @@ class XrayVpnService : VpnService() {
         httpPort: Int,
         perAppMode: PerAppProxyMode,
         perAppPackages: Set<String>,
+        chainProfiles: List<ProxyProfile> = emptyList(),
     ) {
         val profileName = profile.displayTitle()
         val sessionToken = activeSessionToken.incrementAndGet()
@@ -1249,39 +1277,14 @@ class XrayVpnService : VpnService() {
 
                     if (!proxyOnly) {
                         val effectiveMtu = mtu.coerceIn(1280, 9000)
-                        val effectiveConfigJson = when (profile.protocol) {
-                            ProxyProtocol.SSH -> {
-                                val geo = XrayAssetHelper.currentStatus(this@XrayVpnService)
-                                val bridge = SshTunnelBridge(profile = profile, vpnService = this@XrayVpnService)
-                                val bridgePort = bridge.start()
-                                sshTunnelBridge = bridge
-                                XrayConfigBuilder.buildConfigJson(
-                                    profile = profile,
-                                    settings = settings,
-                                    rules = rules,
-                                    includeTunInbound = true,
-                                    sshLocalBridgePort = bridgePort,
-                                    hasGeoIp = geo.hasGeoIp,
-                                    hasGeoSite = geo.hasGeoSite,
-                                )
-                            }
-                            ProxyProtocol.TUIC -> {
-                                val geo = XrayAssetHelper.currentStatus(this@XrayVpnService)
-                                val bridge = TuicTunnelBridge(profile = profile, vpnService = this@XrayVpnService)
-                                val bridgePort = bridge.start()
-                                tuicTunnelBridge = bridge
-                                XrayConfigBuilder.buildConfigJson(
-                                    profile = profile,
-                                    settings = settings,
-                                    rules = rules,
-                                    includeTunInbound = true,
-                                    tuicLocalBridgePort = bridgePort,
-                                    hasGeoIp = geo.hasGeoIp,
-                                    hasGeoSite = geo.hasGeoSite,
-                                )
-                            }
-                            else -> configJson
-                        }
+                        val effectiveConfigJson = prepareEffectiveConfigWithBridges(
+                            profile = profile,
+                            chainProfiles = chainProfiles,
+                            settings = settings,
+                            rules = rules,
+                            includeTunInbound = true,
+                            fallbackConfigJson = configJson,
+                        )
 
                         val spec = ActiveTunnelSpec(
                             profile = profile,
@@ -1297,6 +1300,7 @@ class XrayVpnService : VpnService() {
                             httpPort = httpPort,
                             perAppMode = perAppMode,
                             perAppPackages = perAppPackages,
+                            chainProfiles = chainProfiles,
                         )
                         activeTunnelSpec = spec
 
@@ -1350,39 +1354,14 @@ class XrayVpnService : VpnService() {
                         )
                         NekoWidgetManager.refreshAll(this@XrayVpnService)
                     } else {
-                        val effectiveConfigJson = when (profile.protocol) {
-                            ProxyProtocol.SSH -> {
-                                val geo = XrayAssetHelper.currentStatus(this@XrayVpnService)
-                                val bridge = SshTunnelBridge(profile = profile, vpnService = this@XrayVpnService)
-                                val bridgePort = bridge.start()
-                                sshTunnelBridge = bridge
-                                XrayConfigBuilder.buildConfigJson(
-                                    profile = profile,
-                                    settings = settings,
-                                    rules = rules,
-                                    includeTunInbound = false,
-                                    sshLocalBridgePort = bridgePort,
-                                    hasGeoIp = geo.hasGeoIp,
-                                    hasGeoSite = geo.hasGeoSite,
-                                )
-                            }
-                            ProxyProtocol.TUIC -> {
-                                val geo = XrayAssetHelper.currentStatus(this@XrayVpnService)
-                                val bridge = TuicTunnelBridge(profile = profile, vpnService = this@XrayVpnService)
-                                val bridgePort = bridge.start()
-                                tuicTunnelBridge = bridge
-                                XrayConfigBuilder.buildConfigJson(
-                                    profile = profile,
-                                    settings = settings,
-                                    rules = rules,
-                                    includeTunInbound = false,
-                                    tuicLocalBridgePort = bridgePort,
-                                    hasGeoIp = geo.hasGeoIp,
-                                    hasGeoSite = geo.hasGeoSite,
-                                )
-                            }
-                            else -> configJson
-                        }
+                        val effectiveConfigJson = prepareEffectiveConfigWithBridges(
+                            profile = profile,
+                            chainProfiles = chainProfiles,
+                            settings = settings,
+                            rules = rules,
+                            includeTunInbound = false,
+                            fallbackConfigJson = configJson,
+                        )
 
                         activeTunnelSpec = ActiveTunnelSpec(
                             profile = profile,
@@ -1398,6 +1377,7 @@ class XrayVpnService : VpnService() {
                             httpPort = httpPort,
                             perAppMode = perAppMode,
                             perAppPackages = perAppPackages,
+                            chainProfiles = chainProfiles,
                         )
 
                         val primaryAtStart = getOrderedUnderlyingNetworks().firstOrNull()
@@ -1462,6 +1442,58 @@ class XrayVpnService : VpnService() {
                 runCatching { if (lock.isLocked) lock.unlock() }
             }
         }
+    }
+
+    private fun prepareEffectiveConfigWithBridges(
+        profile: ProxyProfile,
+        chainProfiles: List<ProxyProfile>,
+        settings: XraySettings,
+        rules: List<RoutingRule>,
+        includeTunInbound: Boolean,
+        fallbackConfigJson: String,
+    ): String {
+        val chain = XrayConfigBuilder.resolveChain(profile, chainProfiles)
+        val bridgeHops = chain.hops.filter {
+            it.protocol == ProxyProtocol.SSH || it.protocol == ProxyProtocol.TUIC
+        }
+        if (bridgeHops.isEmpty()) {
+            return fallbackConfigJson
+        }
+        val geo = XrayAssetHelper.currentStatus(this@XrayVpnService)
+        val bridgePorts = mutableMapOf<Long, Int>()
+        var primarySshPort = 0
+        var primaryTuicPort = 0
+        for (hop in bridgeHops) {
+            when (hop.protocol) {
+                ProxyProtocol.SSH -> {
+                    val bridge = SshTunnelBridge(profile = hop, vpnService = this@XrayVpnService)
+                    val port = bridge.start()
+                    sshTunnelBridge = bridge
+                    bridgePorts[hop.id] = port
+                    if (hop.id == profile.id) primarySshPort = port
+                }
+                ProxyProtocol.TUIC -> {
+                    val bridge = TuicTunnelBridge(profile = hop, vpnService = this@XrayVpnService)
+                    val port = bridge.start()
+                    tuicTunnelBridge = bridge
+                    bridgePorts[hop.id] = port
+                    if (hop.id == profile.id) primaryTuicPort = port
+                }
+                else -> Unit
+            }
+        }
+        return XrayConfigBuilder.buildConfigJson(
+            profile = profile,
+            settings = settings,
+            rules = rules,
+            includeTunInbound = includeTunInbound,
+            sshLocalBridgePort = primarySshPort,
+            tuicLocalBridgePort = primaryTuicPort,
+            hasGeoIp = geo.hasGeoIp,
+            hasGeoSite = geo.hasGeoSite,
+            allProfiles = chainProfiles,
+            chainBridgePorts = bridgePorts,
+        )
     }
 
     private fun startTrafficMonitor(
