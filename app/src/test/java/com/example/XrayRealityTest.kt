@@ -1780,13 +1780,13 @@ class XrayRealityTest {
         assertTrue(tuicRound.tuicDisableSni)
         assertEquals(12000, tuicRound.tuicHeartbeatIntervalMs)
 
-        // Verify Room in-memory DB opens at version 5 cleanly
+        // Verify Room in-memory DB opens at version 6 cleanly
         val ctx = androidx.test.core.app.ApplicationProvider.getApplicationContext<android.content.Context>()
         val db = androidx.room.Room.inMemoryDatabaseBuilder(ctx, com.example.data.local.NekoDatabase::class.java)
             .allowMainThreadQueries()
             .build()
         try {
-            assertEquals(5, db.openHelper.readableDatabase.version)
+            assertEquals(6, db.openHelper.readableDatabase.version)
             val insertedHy2Id = kotlinx.coroutines.runBlocking {
                 db.profileDao().insert(com.example.data.local.ProfileEntity.fromDomain(hy2))
             }
@@ -2576,6 +2576,184 @@ class XrayRealityTest {
         } finally {
             running.set(false)
             runCatching { server.close() }
+        }
+    }
+
+    @Test
+    fun `ipv6OnlyProxy emits split routing ipv6-to-proxy and ipv4-to-direct with ipv6 doh, routeOnly, and UseIP`() {
+        val socksProfile = com.example.core.model.ProxyProfile(
+            id = 901L,
+            name = "Cheap IPv6 SOCKS5",
+            protocol = ProxyProtocol.SOCKS5,
+            serverAddress = "198.51.100.55",
+            serverPort = 12114,
+            username = "demoUser",
+            password = "demoPass",
+            security = SecurityType.NONE,
+            flow = FlowType.NONE,
+            ipv6OnlyProxy = true,
+        )
+        val userBlockRule = com.example.core.model.RoutingRule(
+            id = 1L,
+            name = "Block Ads",
+            enabled = true,
+            domains = "geosite:category-ads-all",
+            action = com.example.core.model.RouteAction.BLOCK,
+            priority = 1,
+        )
+
+        // Even when global settings have IPv6 DISABLE, domainStrategy AsIs, routeOnly false,
+        // per-profile ipv6OnlyProxy activates IPv6->proxy / IPv4->direct split routing!
+        val cfg = JSONObject(
+            XrayConfigBuilder.buildConfigJson(
+                profile = socksProfile,
+                settings = XraySettings(
+                    ipv6Mode = com.example.core.model.IPv6Mode.DISABLE,
+                    domainStrategy = "AsIs",
+                    routeOnly = false,
+                    bypassLan = true,
+                ),
+                rules = listOf(userBlockRule),
+                includeTunInbound = true,
+            )
+        )
+
+        // 1. DNS uses UseIP (for both AAAA -> proxy and A -> direct) and IPv6 DoH as primary
+        val dns = cfg.getJSONObject("dns")
+        assertEquals("UseIP", dns.getString("queryStrategy"))
+        assertEquals(
+            "https://[2606:4700:4700::1111]/dns-query",
+            dns.getJSONArray("servers").getString(0),
+        )
+
+        // 2. tun-in keeps routeOnly = true so literal IPv6 packets aren't turned into ATYP=DOMAIN
+        val inbounds = cfg.getJSONArray("inbounds")
+        val tunIn = (0 until inbounds.length())
+            .map { inbounds.getJSONObject(it) }
+            .first { it.getString("tag") == "tun-in" }
+        assertTrue(tunIn.getJSONObject("sniffing").getBoolean("routeOnly"))
+
+        // 3. direct outbound uses UseIPv4 so IPv4-only sites never stall on IPv4-only ISPs
+        val outbounds = cfg.getJSONArray("outbounds")
+        val directOut = (0 until outbounds.length())
+            .map { outbounds.getJSONObject(it) }
+            .first { it.getString("tag") == "direct" }
+        assertEquals("UseIPv4", directOut.getJSONObject("settings").getString("domainStrategy"))
+
+        // 4. routing upgrades AsIs -> IPIfNonMatch and places ::/0 -> proxy BEFORE 0.0.0.0/0 -> direct
+        val routing = cfg.getJSONObject("routing")
+        assertEquals("IPIfNonMatch", routing.getString("domainStrategy"))
+        val rulesArr = routing.getJSONArray("rules")
+        val ruleList = (0 until rulesArr.length()).map { rulesArr.getJSONObject(it) }
+
+        val userBlockIdx = ruleList.indexOfFirst { it.optString("outboundTag") == "block" }
+        val ipv6ProxyIdx = ruleList.indexOfFirst { r ->
+            r.optString("outboundTag") == "proxy" &&
+                r.optJSONArray("ip")?.let { arr -> (0 until arr.length()).any { arr.optString(it) == "::/0" } } == true
+        }
+        val ipv4DirectIdx = ruleList.indexOfFirst { r ->
+            r.optString("outboundTag") == "direct" &&
+                r.optJSONArray("ip")?.let { arr -> (0 until arr.length()).any { arr.optString(it) == "0.0.0.0/0" } } == true
+        }
+        val catchAllIdx = ruleList.indexOfFirst {
+            it.optString("network") == "tcp,udp" && it.optString("outboundTag") == "proxy"
+        }
+
+        assertTrue("Expected user block rule before split rules", userBlockIdx in 0 until ipv6ProxyIdx)
+        assertTrue("Expected ::/0 -> proxy before 0.0.0.0/0 -> direct", ipv6ProxyIdx in 0 until ipv4DirectIdx)
+        assertTrue("Expected 0.0.0.0/0 -> direct before catch-all", ipv4DirectIdx in 0 until catchAllIdx)
+
+        // 5. Latency test path (applyIpv6OnlySplitRouting = false) omits 0.0.0.0/0 -> direct so ping measures proxy!
+        val pingCfg = JSONObject(
+            XrayConfigBuilder.buildConfigJson(
+                profile = socksProfile,
+                settings = XraySettings(
+                    ipv6Mode = com.example.core.model.IPv6Mode.ONLY,
+                    domainStrategy = "AsIs",
+                    bypassLan = false,
+                ),
+                rules = emptyList(),
+                includeTunInbound = false,
+                applyIpv6OnlySplitRouting = false,
+            )
+        )
+        val pingRules = pingCfg.getJSONObject("routing").getJSONArray("rules")
+        val hasIpv4DirectRule = (0 until pingRules.length()).any { idx ->
+            val r = pingRules.getJSONObject(idx)
+            r.optString("outboundTag") == "direct" &&
+                r.optJSONArray("ip")?.let { arr -> (0 until arr.length()).any { arr.optString(it) == "0.0.0.0/0" } } == true
+        }
+        org.junit.Assert.assertFalse("Ping config must not route IPv4 direct", hasIpv4DirectRule)
+        assertEquals("UseIPv6", pingCfg.getJSONObject("dns").getString("queryStrategy"))
+    }
+
+    @Test
+    fun `vpn tun ipv6 address follows rfc6724 global-unicast precedence when ipv6 priority is active`() {
+        val preferredAddr = com.example.core.vpn.XrayVpnService.selectTunIpv6Address(preferIpv6 = true)
+        val defaultAddr = com.example.core.vpn.XrayVpnService.selectTunIpv6Address(preferIpv6 = false)
+
+        // Preferred address must NOT be ULA (fc00::/7) so RFC 6724 precedence (40) beats IPv4 (35)
+        assertTrue("Expected RFC 3849 Global-Unicast-precedence address, got $preferredAddr", preferredAddr.startsWith("2001:db8:"))
+        org.junit.Assert.assertFalse(preferredAddr.startsWith("fd", ignoreCase = true))
+        assertEquals("fdfe:dcba:9876::1", defaultAddr)
+    }
+
+    @Test
+    fun `room v6 migration adds ipv6OnlyProxy column defaulting to false and persists true`() {
+        val ctx = androidx.test.core.app.ApplicationProvider.getApplicationContext<android.content.Context>()
+
+        // 1. Verify MIGRATION_5_6 alters a v5 proxy_profiles table cleanly with DEFAULT 0
+        val supportDb = androidx.sqlite.db.framework.FrameworkSQLiteOpenHelperFactory()
+            .create(
+                androidx.sqlite.db.SupportSQLiteOpenHelper.Configuration.builder(ctx)
+                    .name(null)
+                    .callback(object : androidx.sqlite.db.SupportSQLiteOpenHelper.Callback(5) {
+                        override fun onCreate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                            db.execSQL(
+                                "CREATE TABLE proxy_profiles (" +
+                                    "id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                                    "name TEXT NOT NULL, " +
+                                    "chainProxyId INTEGER NOT NULL DEFAULT 0)"
+                            )
+                            db.execSQL("INSERT INTO proxy_profiles (id, name, chainProxyId) VALUES (1, 'Legacy v5 Node', 0)")
+                        }
+                        override fun onUpgrade(db: androidx.sqlite.db.SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
+                    })
+                    .build()
+            ).writableDatabase
+        try {
+            com.example.data.local.NekoDatabase.MIGRATION_5_6.migrate(supportDb)
+            supportDb.query("SELECT ipv6OnlyProxy FROM proxy_profiles WHERE id = 1").use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals(0, cursor.getInt(0))
+            }
+        } finally {
+            supportDb.close()
+        }
+
+        // 2. Verify Room DB v6 persists ipv6OnlyProxy = true accurately
+        val db = androidx.room.Room.inMemoryDatabaseBuilder(ctx, com.example.data.local.NekoDatabase::class.java)
+            .allowMainThreadQueries()
+            .build()
+        try {
+            kotlinx.coroutines.runBlocking {
+                val id = db.profileDao().insert(
+                    com.example.data.local.ProfileEntity.fromDomain(
+                        com.example.core.model.ProxyProfile(
+                            name = "IPv6 Split Node",
+                            protocol = ProxyProtocol.SOCKS5,
+                            serverAddress = "198.51.100.77",
+                            serverPort = 1080,
+                            ipv6OnlyProxy = true,
+                        )
+                    )
+                )
+                val loaded = db.profileDao().getById(id)?.toDomain()
+                assertNotNull(loaded)
+                assertTrue(loaded!!.ipv6OnlyProxy)
+            }
+        } finally {
+            db.close()
         }
     }
 }

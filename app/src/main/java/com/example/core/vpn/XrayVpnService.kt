@@ -335,6 +335,17 @@ class XrayVpnService : VpnService() {
             }
             return expanded
         }
+
+        /**
+         * Selects the local IPv6 address for the Android TUN interface according to RFC 6724:
+         * - When [preferIpv6] is true (e.g. IPv6-Only Proxy split mode or IPv6Mode.PREFER / ONLY),
+         *   uses a non-routable Global-Unicast-scoped documentation address (`2001:db8:ac10:fe01::1`,
+         *   RFC 3849) whose RFC 6724 precedence (40) is higher than IPv4 (35), making Android Bionic
+         *   and apps (Chrome, YouTube, Telegram) prioritize IPv6 over IPv4 automatically.
+         * - Otherwise uses ULA (`fdfe:dcba:9876::1`), whose precedence (3) keeps IPv4 preferred.
+         */
+        fun selectTunIpv6Address(preferIpv6: Boolean): String =
+            if (preferIpv6) "2001:db8:ac10:fe01::1" else "fdfe:dcba:9876::1"
     }
 
     private data class ActiveTunnelSpec(
@@ -1179,15 +1190,26 @@ class XrayVpnService : VpnService() {
 
         val hasSshInChain = spec.profile.protocol == ProxyProtocol.SSH ||
             spec.chainProfiles.any { it.protocol == ProxyProtocol.SSH }
-        val enableTunIpv6 = if (hasSshInChain) {
+        val isIpv6SplitMode = spec.profile.ipv6OnlyProxy
+        val enableTunIpv6 = isIpv6SplitMode || if (hasSshInChain) {
             spec.ipv6Mode == IPv6Mode.ONLY || spec.ipv6Mode == IPv6Mode.PREFER
         } else {
             spec.ipv6Mode != IPv6Mode.DISABLE
         }
+        val preferIpv6Addr = isIpv6SplitMode ||
+            spec.ipv6Mode == IPv6Mode.PREFER ||
+            spec.ipv6Mode == IPv6Mode.ONLY
         if (enableTunIpv6) {
-            builder.addAddress("fdfe:dcba:9876::1", 126)
+            val tunIpv6Addr = selectTunIpv6Address(preferIpv6Addr)
+            builder.addAddress(tunIpv6Addr, 126)
             builder.addDnsServer("2606:4700:4700::1111")
             builder.addRoute("::", 0)
+            if (isIpv6SplitMode) {
+                XrayEngineState.appendLog(
+                    "INFO",
+                    "IPv6-only proxy split routing active: IPv6 (::/0) -> proxy, IPv4 (0.0.0.0/0) -> direct (RFC 6724 IPv6 priority, TUN $tunIpv6Addr/126).",
+                )
+            }
         }
 
         if (isLockdownActive() && spec.perAppMode != PerAppProxyMode.ALL) {

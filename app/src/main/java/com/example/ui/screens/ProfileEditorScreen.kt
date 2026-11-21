@@ -15,6 +15,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.AltRoute
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Code
@@ -231,6 +232,7 @@ fun ProfileEditorScreen(
                         },
                         flow = if (proto == ProxyProtocol.VLESS) profile.flow else FlowType.NONE,
                         chainProxyId = if (proto in listOf(ProxyProtocol.SSH, ProxyProtocol.TUIC, ProxyProtocol.CUSTOM_JSON)) 0L else profile.chainProxyId,
+                        ipv6OnlyProxy = if (proto == ProxyProtocol.CUSTOM_JSON) false else profile.ipv6OnlyProxy,
                     )
                 },
             )
@@ -1101,6 +1103,79 @@ fun ProfileEditorScreen(
                                         }
                                     }
                                 }
+                            }
+                        }
+                    }
+                }
+
+                // IPv6-Only Proxy Split Routing Card
+                Card(
+                    colors = CardDefaults.cardColors(
+                        containerColor = if (profile.ipv6OnlyProxy) {
+                            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.28f)
+                        } else {
+                            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                        },
+                    ),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Column(
+                        modifier = Modifier.padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Row(
+                                modifier = Modifier.weight(1f),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.AltRoute,
+                                    contentDescription = null,
+                                    tint = if (profile.ipv6OnlyProxy) {
+                                        MaterialTheme.colorScheme.primary
+                                    } else {
+                                        MaterialTheme.colorScheme.onSurfaceVariant
+                                    },
+                                )
+                                Spacer(Modifier.width(10.dp))
+                                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                    Text(
+                                        text = strings.ipv6OnlyProxyTitle,
+                                        style = MaterialTheme.typography.titleMedium,
+                                    )
+                                    Text(
+                                        text = strings.ipv6OnlyProxySubtitle,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                            }
+                            Spacer(Modifier.width(8.dp))
+                            Switch(
+                                checked = profile.ipv6OnlyProxy,
+                                onCheckedChange = { profile = profile.copy(ipv6OnlyProxy = it) },
+                                modifier = Modifier.testTag("editor_ipv6_only_proxy_switch"),
+                            )
+                        }
+
+                        AnimatedVisibility(visible = profile.ipv6OnlyProxy) {
+                            Surface(
+                                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.78f),
+                                shape = MaterialTheme.shapes.small,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("editor_ipv6_only_proxy_summary"),
+                            ) {
+                                Text(
+                                    text = strings.ipv6OnlyProxyActiveSummary,
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                                )
                             }
                         }
                     }

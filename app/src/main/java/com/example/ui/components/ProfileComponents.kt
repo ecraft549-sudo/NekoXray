@@ -427,6 +427,15 @@ fun ProxyProfileCard(
                         }
                     }
                 }
+
+                if (profile.ipv6OnlyProxy) {
+                    TagPill(
+                        text = strings.ipv6OnlyProxyBadge,
+                        containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                        modifier = Modifier.testTag("profile_ipv6_split_badge_${profile.id}"),
+                    )
+                }
             }
         }
     }

@@ -232,6 +232,7 @@ class NekoRepository(
                         serviceMode = ServiceMode.PROXY_ONLY,
                         socksPort = if (tempSocksPort > 0) tempSocksPort else settings.socksPort + 210,
                         httpPort = if (tempHttpPort > 0) tempHttpPort else settings.httpPort + 210,
+                        ipv6Mode = if (profile.ipv6OnlyProxy) IPv6Mode.ONLY else settings.ipv6Mode,
                         domainStrategy = "AsIs",
                         bypassLan = false,
                     )
@@ -247,6 +248,7 @@ class NekoRepository(
                         allProfiles = resolvedHops,
                         chainBridgePorts = bridgePorts,
                         chainLoopbackPorts = loopbackPorts,
+                        applyIpv6OnlySplitRouting = false,
                     )
                     NetworkTester.testXrayConfigWithTempCore(
                         context = ctx,
@@ -341,6 +343,7 @@ class NekoRepository(
                 val resolvedProfile = preResolveEntryHop(profile, preferIpv6, activeVpn)
                 val testSettings = settings.copy(
                     serviceMode = ServiceMode.PROXY_ONLY,
+                    ipv6Mode = if (profile.ipv6OnlyProxy) IPv6Mode.ONLY else settings.ipv6Mode,
                     domainStrategy = "AsIs",
                     bypassLan = false,
                 )
@@ -352,6 +355,7 @@ class NekoRepository(
                     hasGeoIp = geo.hasGeoIp,
                     hasGeoSite = geo.hasGeoSite,
                     allProfiles = allProfiles,
+                    applyIpv6OnlySplitRouting = false,
                 )
                 NetworkTester.testXrayOutboundDelay(ctx, configJson)
             } else {
@@ -374,6 +378,7 @@ class NekoRepository(
             val resolvedProfile = preResolveEntryHop(profile, preferIpv6, activeVpn)
             val testSettings = settings.copy(
                 serviceMode = ServiceMode.PROXY_ONLY,
+                ipv6Mode = if (profile.ipv6OnlyProxy) IPv6Mode.ONLY else settings.ipv6Mode,
                 domainStrategy = "AsIs",
                 bypassLan = false,
             )
@@ -385,6 +390,7 @@ class NekoRepository(
                 hasGeoIp = geo.hasGeoIp,
                 hasGeoSite = geo.hasGeoSite,
                 allProfiles = allProfiles,
+                applyIpv6OnlySplitRouting = false,
             )
             NetworkTester.testXrayOutboundDelay(ctx, configJson)
         } else {

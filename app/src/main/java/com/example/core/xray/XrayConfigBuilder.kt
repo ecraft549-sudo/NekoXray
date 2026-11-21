@@ -164,6 +164,7 @@ object XrayConfigBuilder {
         allProfiles: List<ProxyProfile> = emptyList(),
         chainBridgePorts: Map<Long, Int> = emptyMap(),
         chainLoopbackPorts: Map<Int, Int> = emptyMap(),
+        applyIpv6OnlySplitRouting: Boolean = profile.ipv6OnlyProxy,
     ): String {
         if (profile.protocol == ProxyProtocol.CUSTOM_JSON && profile.customConfigJson.isNotBlank()) {
             return runCatching {
@@ -213,13 +214,11 @@ object XrayConfigBuilder {
             val ipv6FallbackDoh = "https://[2606:4700:4700::1111]/dns-query"
             val remoteDnsHostRaw = extractHostFromUrl(rawRemoteDns)
             val remoteDnsIsIpv4Literal = Regex("^\\d{1,3}(\\.\\d{1,3}){3}$").matches(remoteDnsHostRaw)
-            val remoteDnsServer = if (
-                settings.ipv6Mode == com.example.core.model.IPv6Mode.ONLY &&
-                remoteDnsIsIpv4Literal
-            ) {
-                ipv6FallbackDoh
-            } else {
-                rawRemoteDns
+            val remoteDnsIsIpv6Literal = remoteDnsHostRaw.contains(":")
+            val remoteDnsServer = when {
+                applyIpv6OnlySplitRouting && !remoteDnsIsIpv6Literal -> ipv6FallbackDoh
+                settings.ipv6Mode == com.example.core.model.IPv6Mode.ONLY && remoteDnsIsIpv4Literal -> ipv6FallbackDoh
+                else -> rawRemoteDns
             }
             val needsIpv6FallbackRemoteDns = settings.ipv6Mode != com.example.core.model.IPv6Mode.DISABLE &&
                 remoteDnsServer != ipv6FallbackDoh &&
@@ -235,13 +234,11 @@ object XrayConfigBuilder {
                 .filter { it.isNotBlank() && (hasGeoSite || !it.startsWith("geosite:", ignoreCase = true)) }
                 .distinct()
 
-            val effectiveQueryStrategy = if (
-                hasSshInChain &&
-                settings.ipv6Mode != com.example.core.model.IPv6Mode.ONLY
-            ) {
-                "UseIPv4"
-            } else {
-                settings.ipv6Mode.wireStrategy
+            val effectiveQueryStrategy = when {
+                // IPv6-only proxy split mode needs BOTH AAAA (for proxy) and A (for IPv4-only direct sites).
+                applyIpv6OnlySplitRouting -> "UseIP"
+                hasSshInChain && settings.ipv6Mode != com.example.core.model.IPv6Mode.ONLY -> "UseIPv4"
+                else -> settings.ipv6Mode.wireStrategy
             }
 
             // Bootstrap the physical entry hop hostname (and any hop dialing through WireGuard, which is L3 IP-only)
@@ -316,7 +313,10 @@ object XrayConfigBuilder {
                         }
                         putJsonObject("sniffing") {
                             put("enabled", settings.sniffingEnabled)
-                            put("routeOnly", settings.routeOnly)
+                            // In IPv6-only proxy split mode, keep the literal IPv6/IPv4 destination chosen by
+                            // Android (RFC 6724) so IPv6 packets are sent as ATYP=IPv6 instead of ATYP=DOMAIN
+                            // (preventing IPv6-only SOCKS5 servers from trying IPv4 first on dual-stack sites).
+                            put("routeOnly", settings.routeOnly || applyIpv6OnlySplitRouting)
                             putJsonArray("destOverride") {
                                 add("http")
                                 add("tls")
@@ -454,7 +454,10 @@ object XrayConfigBuilder {
                     put("tag", "direct")
                     put("protocol", "freedom")
                     putJsonObject("settings") {
-                        put("domainStrategy", settings.ipv6Mode.wireStrategy)
+                        put(
+                            "domainStrategy",
+                            if (applyIpv6OnlySplitRouting) "UseIPv4" else settings.ipv6Mode.wireStrategy,
+                        )
                     }
                 }
 
@@ -478,7 +481,15 @@ object XrayConfigBuilder {
             }
 
             putJsonObject("routing") {
-                put("domainStrategy", settings.domainStrategy)
+                val effectiveRoutingDomainStrategy = if (
+                    applyIpv6OnlySplitRouting &&
+                    settings.domainStrategy.equals("AsIs", ignoreCase = true)
+                ) {
+                    "IPIfNonMatch"
+                } else {
+                    settings.domainStrategy
+                }
+                put("domainStrategy", effectiveRoutingDomainStrategy)
                 putJsonArray("rules") {
                     for (idx in 1 until hops.size) {
                         if (chainLoopbackPorts[idx]?.takeIf { it in 1..65535 } != null) {
@@ -582,6 +593,19 @@ object XrayConfigBuilder {
                                 }
                                 put("outboundTag", rule.action.outboundTag)
                             }
+                        }
+                    }
+
+                    if (applyIpv6OnlySplitRouting) {
+                        addJsonObject {
+                            put("type", "field")
+                            putJsonArray("ip") { add("::/0") }
+                            put("outboundTag", "proxy")
+                        }
+                        addJsonObject {
+                            put("type", "field")
+                            putJsonArray("ip") { add("0.0.0.0/0") }
+                            put("outboundTag", "direct")
                         }
                     }
 

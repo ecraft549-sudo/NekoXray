@@ -179,6 +179,9 @@ data class ProxyProfile(
     // Proxy Chain (upstream / entry dialerProxy profile ID; 0 = direct)
     val chainProxyId: Long = 0L,
 
+    // IPv6-Only Proxy split routing: prioritize IPv6 via proxy, route IPv4-only sites direct
+    val ipv6OnlyProxy: Boolean = false,
+
     // Custom Raw Xray Config JSON
     val customConfigJson: String = "",
 
