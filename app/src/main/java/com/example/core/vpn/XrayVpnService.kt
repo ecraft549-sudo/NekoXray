@@ -155,8 +155,33 @@ class XrayVpnService : VpnService() {
         @Volatile
         private var activeServiceInstance: XrayVpnService? = null
 
+        fun activeServiceOrNull(): XrayVpnService? = activeServiceInstance
+
         fun requestImmediateStop() {
             activeServiceInstance?.stopTunnel()
+        }
+
+        /**
+         * Measures real HTTP/HTTPS round-trip latency directly through the currently running
+         * Xray-core instance (including full multi-hop proxy chains and active bridges).
+         */
+        suspend fun measureActiveTunnelDelay(
+            testUrl: String = "https://www.gstatic.com/generate_204",
+            timeoutMs: Long = 8_000L,
+        ): Int? = withContext(Dispatchers.IO) {
+            val ctrl = activeServiceInstance?.coreControllerInstance?.takeIf { it.isRunning }
+                ?: return@withContext null
+            withTimeoutOrNull(timeoutMs) {
+                runCatching {
+                    val delayMs = ctrl.measureDelay(testUrl)
+                    if (delayMs > 0L) delayMs.toInt() else null
+                }.onFailure { err ->
+                    XrayEngineState.appendLog(
+                        "WARN",
+                        "Active tunnel delay probe failed: ${err.message ?: err.javaClass.simpleName}",
+                    )
+                }.getOrNull()
+            }
         }
 
         fun isSystemAlwaysOnInvocation(intent: Intent?): Boolean {
@@ -254,6 +279,9 @@ class XrayVpnService : VpnService() {
                 val keys = root.keys()
                 while (keys.hasNext()) {
                     val key = keys.next()
+                    if (key.startsWith("chain-") || key == "fragment" || key == "dns-out" || key == "api" || key == "block") {
+                        continue
+                    }
                     val obj = root.optJSONObject(key)
                     if (obj != null && (obj.has("uplink") || obj.has("downlink"))) {
                         totalUp += obj.optLong("uplink", 0L).coerceAtLeast(0L)
@@ -450,6 +478,17 @@ class XrayVpnService : VpnService() {
             runCatching { net.bindSocket(socket) }
         }
         return protectedOk
+    }
+
+    fun resolveHostOnUnderlyingNetwork(host: String): Array<java.net.InetAddress>? {
+        val clean = host.trim()
+        if (clean.isEmpty()) return null
+        val net = currentPrimaryNetwork
+        if (net != null) {
+            val resolved = runCatching { net.getAllByName(clean) }.getOrNull()
+            if (!resolved.isNullOrEmpty()) return resolved
+        }
+        return runCatching { java.net.InetAddress.getAllByName(clean) }.getOrNull()
     }
 
     private fun bindProcessToUnderlyingNetwork(network: Network?) {
@@ -1147,6 +1186,7 @@ class XrayVpnService : VpnService() {
         }
         if (enableTunIpv6) {
             builder.addAddress("fdfe:dcba:9876::1", 126)
+            builder.addDnsServer("2606:4700:4700::1111")
             builder.addRoute("::", 0)
         }
 
@@ -1456,7 +1496,8 @@ class XrayVpnService : VpnService() {
         val bridgeHops = chain.hops.filter {
             it.protocol == ProxyProtocol.SSH || it.protocol == ProxyProtocol.TUIC
         }
-        if (bridgeHops.isEmpty()) {
+        val loopbackPorts = XrayConfigBuilder.allocateChainLoopbackPorts(chain.hops)
+        if (bridgeHops.isEmpty() && loopbackPorts.isEmpty()) {
             return fallbackConfigJson
         }
         val geo = XrayAssetHelper.currentStatus(this@XrayVpnService)
@@ -1482,6 +1523,18 @@ class XrayVpnService : VpnService() {
                 else -> Unit
             }
         }
+        if (chain.hops.size > 1) {
+            val routeSummary = chain.hops.asReversed().mapIndexed { revIdx, hop ->
+                val hopIdx = chain.hops.lastIndex - revIdx
+                val bridgeTag = when {
+                    bridgePorts[hop.id] != null -> " [bridge:${bridgePorts[hop.id]}]"
+                    loopbackPorts[hopIdx] != null -> " [loopback:${loopbackPorts[hopIdx]}]"
+                    else -> ""
+                }
+                "${hop.protocol.displayName}(${hop.displayTitle()})$bridgeTag"
+            }.joinToString(" -> ")
+            XrayEngineState.appendLog("INFO", "Proxy chain active (${chain.hops.size} hops): $routeSummary")
+        }
         return XrayConfigBuilder.buildConfigJson(
             profile = profile,
             settings = settings,
@@ -1493,6 +1546,7 @@ class XrayVpnService : VpnService() {
             hasGeoSite = geo.hasGeoSite,
             allProfiles = chainProfiles,
             chainBridgePorts = bridgePorts,
+            chainLoopbackPorts = loopbackPorts,
         )
     }
 

@@ -290,17 +290,19 @@ class NekoViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             transient.update { it.copy(testingProfileIds = it.testingProfileIds + profile.id) }
             val (tcp, tls) = repo.testProfileLatency(profile)
+            val hint = repo.lastProbeHint(profile.id)
             transient.update { it.copy(testingProfileIds = it.testingProfileIds - profile.id) }
+            val hintSuffix = if (!hint.isNullOrBlank()) " · $hint" else ""
             val msg = if (tcp != null || tls != null) {
                 if (profile.chainProxyId > 0L && tcp == null) {
-                    "${profile.displayTitle()}: Chain ${tls}ms"
+                    "${profile.displayTitle()}: Chain ${tls}ms$hintSuffix"
                 } else {
                     val tcpInfo = if (tcp != null) "TCP ${tcp}ms" else "QUIC"
                     val tlsInfo = if (tls != null) " · Xray ${tls}ms" else ""
-                    "${profile.displayTitle()}: $tcpInfo$tlsInfo"
+                    "${profile.displayTitle()}: $tcpInfo$tlsInfo$hintSuffix"
                 }
             } else {
-                "${profile.displayTitle()}: Unreachable / Timeout"
+                "${profile.displayTitle()}: ${hint ?: "Unreachable / Timeout"}"
             }
             _events.emit(msg)
         }

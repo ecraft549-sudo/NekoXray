@@ -180,9 +180,12 @@ object UriParser {
         }.getOrNull()
     }
 
+    private fun cleanUriHost(raw: String?): String =
+        raw.orEmpty().trim().removePrefix("[").removeSuffix("]")
+
     private fun parseVless(link: String, groupId: Long): ProxyProfile {
         val uri = Uri.parse(link)
-        val host = uri.host.orEmpty()
+        val host = cleanUriHost(uri.host)
         val port = uri.port.takeIf { it > 0 } ?: 443
         val uuid = uri.userInfo.orEmpty().let { urlDecode(it) }
         val name = uri.fragment?.let { urlDecode(it) }.orEmpty()
@@ -313,7 +316,7 @@ object UriParser {
 
     private fun parseTrojan(link: String, groupId: Long): ProxyProfile {
         val uri = Uri.parse(link)
-        val host = uri.host.orEmpty()
+        val host = cleanUriHost(uri.host)
         val port = uri.port.takeIf { it > 0 } ?: 443
         val password = uri.userInfo.orEmpty().let { urlDecode(it) }
         val name = uri.fragment?.let { urlDecode(it) }.orEmpty()
@@ -392,13 +395,22 @@ object UriParser {
 
     private fun parseSocks(link: String, groupId: Long): ProxyProfile {
         val uri = Uri.parse(link)
-        val host = uri.host.orEmpty()
+        val host = cleanUriHost(uri.host)
         val port = uri.port.takeIf { it > 0 } ?: 1080
         val userInfo = uri.userInfo.orEmpty()
-        val (user, pass) = if (userInfo.contains(":")) {
-            urlDecode(userInfo.substringBefore(":")) to urlDecode(userInfo.substringAfter(":"))
-        } else {
-            "" to ""
+        val (user, pass) = when {
+            userInfo.contains(":") -> {
+                urlDecode(userInfo.substringBefore(":")) to urlDecode(userInfo.substringAfter(":"))
+            }
+            userInfo.isNotBlank() -> {
+                val decoded = tryDecodeBase64(userInfo).orEmpty()
+                if (decoded.contains(":")) {
+                    decoded.substringBefore(":") to decoded.substringAfter(":")
+                } else {
+                    urlDecode(userInfo) to ""
+                }
+            }
+            else -> "" to ""
         }
         val name = uri.fragment?.let { urlDecode(it) }.orEmpty()
         return ProxyProfile(
@@ -418,7 +430,7 @@ object UriParser {
     private fun parseHttp(link: String, groupId: Long): ProxyProfile {
         val uri = Uri.parse(link)
         val isHttps = link.startsWith("https://", ignoreCase = true)
-        val host = uri.host.orEmpty()
+        val host = cleanUriHost(uri.host)
         val port = uri.port.takeIf { it > 0 } ?: if (isHttps) 443 else 8080
         val userInfo = uri.userInfo.orEmpty()
         val (user, pass) = if (userInfo.contains(":")) {
@@ -443,7 +455,7 @@ object UriParser {
 
     private fun parseSsh(link: String, groupId: Long): ProxyProfile {
         val uri = Uri.parse(link)
-        val host = uri.host.orEmpty()
+        val host = cleanUriHost(uri.host)
         val port = uri.port.takeIf { it > 0 } ?: 22
         val userInfo = uri.userInfo.orEmpty()
         val (user, pass) = if (userInfo.contains(":")) {
@@ -482,7 +494,7 @@ object UriParser {
 
     private fun parseWireGuard(link: String, groupId: Long): ProxyProfile {
         val uri = Uri.parse(link)
-        val host = uri.host.orEmpty()
+        val host = cleanUriHost(uri.host)
         val port = uri.port.takeIf { it > 0 } ?: 51820
         val priv = uri.userInfo.orEmpty().let { urlDecode(it) }
         val name = uri.fragment?.let { urlDecode(it) }.orEmpty()
@@ -509,7 +521,7 @@ object UriParser {
             link
         }
         val uri = Uri.parse(normalized)
-        val host = uri.host.orEmpty()
+        val host = cleanUriHost(uri.host)
         val port = uri.port.takeIf { it > 0 } ?: 443
         val rawUserInfo = uri.userInfo.orEmpty().let { urlDecode(it) }
         val password = rawUserInfo.ifBlank { uri.getQueryParameter("auth").orEmpty() }
@@ -565,7 +577,7 @@ object UriParser {
 
     private fun parseTuic(link: String, groupId: Long): ProxyProfile {
         val uri = Uri.parse(link)
-        val host = uri.host.orEmpty()
+        val host = cleanUriHost(uri.host)
         val port = uri.port.takeIf { it > 0 } ?: 443
         val userInfo = uri.userInfo.orEmpty()
         val (uuid, passFromUserInfo) = if (userInfo.contains(":")) {
@@ -674,16 +686,26 @@ object UriParser {
                 val auth = if (profile.username.isNotBlank()) {
                     "${urlEncode(profile.username)}:${urlEncode(profile.password)}@"
                 } else ""
+                val hostPart = if (profile.serverAddress.contains(":") && !profile.serverAddress.startsWith("[")) {
+                    "[${profile.serverAddress}]"
+                } else {
+                    profile.serverAddress
+                }
                 val label = if (profile.name.isNotBlank()) "#${urlEncode(profile.name)}" else ""
-                "socks://$auth${profile.serverAddress}:${profile.serverPort}$label"
+                "socks://$auth$hostPart:${profile.serverPort}$label"
             }
             ProxyProtocol.HTTP -> {
                 val scheme = if (profile.security == SecurityType.TLS) "https" else "http"
                 val auth = if (profile.username.isNotBlank()) {
                     "${urlEncode(profile.username)}:${urlEncode(profile.password)}@"
                 } else ""
+                val hostPart = if (profile.serverAddress.contains(":") && !profile.serverAddress.startsWith("[")) {
+                    "[${profile.serverAddress}]"
+                } else {
+                    profile.serverAddress
+                }
                 val label = if (profile.name.isNotBlank()) "#${urlEncode(profile.name)}" else ""
-                "$scheme://$auth${profile.serverAddress}:${profile.serverPort}$label"
+                "$scheme://$auth$hostPart:${profile.serverPort}$label"
             }
             ProxyProtocol.SSH -> {
                 val userPart = urlEncode(profile.username.ifBlank { "root" })

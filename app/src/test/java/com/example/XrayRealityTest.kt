@@ -2187,4 +2187,395 @@ class XrayRealityTest {
             db.close()
         }
     }
+
+    @Test
+    fun `vless to vless chain with loopback ports isolates hops via local socks5 inbound outbound and top routing rule`() {
+        val entryKeys = RealityKeyGenerator.generateBundle()
+        val exitKeys = RealityKeyGenerator.generateBundle()
+        val entryVless = com.example.core.model.ProxyProfile(
+            id = 601L,
+            name = "Entry VLESS",
+            protocol = ProxyProtocol.VLESS,
+            serverAddress = "entry.example.com",
+            serverPort = 443,
+            uuid = entryKeys.uuid,
+            flow = FlowType.VISION,
+            transport = TransportType.TCP,
+            security = SecurityType.REALITY,
+            sni = "www.microsoft.com",
+            fingerprint = "chrome",
+            realityPublicKey = entryKeys.publicKey,
+            realityShortId = entryKeys.shortId,
+        )
+        val exitVless = com.example.core.model.ProxyProfile(
+            id = 602L,
+            name = "Exit VLESS",
+            protocol = ProxyProtocol.VLESS,
+            serverAddress = "exit.example.com",
+            serverPort = 443,
+            uuid = exitKeys.uuid,
+            flow = FlowType.VISION,
+            transport = TransportType.TCP,
+            security = SecurityType.REALITY,
+            sni = "www.apple.com",
+            fingerprint = "chrome",
+            realityPublicKey = exitKeys.publicKey,
+            realityShortId = exitKeys.shortId,
+            chainProxyId = entryVless.id,
+        )
+        val customRule = com.example.core.model.RoutingRule(
+            id = 1L,
+            name = "Direct Example",
+            enabled = true,
+            domains = "domain:example.com",
+            action = com.example.core.model.RouteAction.DIRECT,
+            priority = 1,
+        )
+
+        val config = JSONObject(
+            XrayConfigBuilder.buildConfigJson(
+                profile = exitVless,
+                settings = XraySettings(bypassLan = true, fragmentEnabled = false),
+                rules = listOf(customRule),
+                allProfiles = listOf(entryVless, exitVless),
+                chainLoopbackPorts = mapOf(1 to 43210),
+            )
+        )
+
+        // 1. Verify chain-in-1 SOCKS5 loopback inbound exists with sniffing disabled
+        val inbounds = config.getJSONArray("inbounds")
+        val chainIn = (0 until inbounds.length())
+            .map { inbounds.getJSONObject(it) }
+            .firstOrNull { it.getString("tag") == "chain-in-1" }
+        assertNotNull("Expected chain-in-1 loopback inbound", chainIn)
+        assertEquals("127.0.0.1", chainIn!!.getString("listen"))
+        assertEquals(43210, chainIn.getInt("port"))
+        assertEquals("socks", chainIn.getString("protocol"))
+        assertTrue(chainIn.getJSONObject("settings").getBoolean("udp"))
+        assertEquals(false, chainIn.getJSONObject("sniffing").getBoolean("enabled"))
+
+        // 2. Verify outbounds: proxy -> chain-dial-1 -> chain-1, both VLESS keep xtls-rprx-vision
+        val outbounds = config.getJSONArray("outbounds")
+        val proxyOut = outbounds.getJSONObject(0)
+        val dialOut = outbounds.getJSONObject(1)
+        val entryOut = outbounds.getJSONObject(2)
+
+        assertEquals("proxy", proxyOut.getString("tag"))
+        assertEquals("vless", proxyOut.getString("protocol"))
+        assertEquals(
+            "xtls-rprx-vision",
+            proxyOut.getJSONObject("settings").getJSONArray("vnext").getJSONObject(0)
+                .getJSONArray("users").getJSONObject(0).getString("flow"),
+        )
+        assertEquals(
+            "chain-dial-1",
+            proxyOut.getJSONObject("streamSettings").getJSONObject("sockopt").getString("dialerProxy"),
+        )
+        assertEquals(
+            "AsIs",
+            proxyOut.getJSONObject("streamSettings").getJSONObject("sockopt").getString("domainStrategy"),
+        )
+
+        assertEquals("chain-dial-1", dialOut.getString("tag"))
+        assertEquals("socks", dialOut.getString("protocol"))
+        val dialSrv = dialOut.getJSONObject("settings").getJSONArray("servers").getJSONObject(0)
+        assertEquals("127.0.0.1", dialSrv.getString("address"))
+        assertEquals(43210, dialSrv.getInt("port"))
+
+        assertEquals("chain-1", entryOut.getString("tag"))
+        assertEquals("vless", entryOut.getString("protocol"))
+        assertEquals(
+            "xtls-rprx-vision",
+            entryOut.getJSONObject("settings").getJSONArray("vnext").getJSONObject(0)
+                .getJSONArray("users").getJSONObject(0).getString("flow"),
+        )
+        assertTrue(!entryOut.getJSONObject("streamSettings").getJSONObject("sockopt").has("dialerProxy"))
+
+        // 3. Verify routing.rules[0] routes chain-in-1 -> chain-1 BEFORE dns-out, bypassLan, and user rules
+        val routingRules = config.getJSONObject("routing").getJSONArray("rules")
+        val topRule = routingRules.getJSONObject(0)
+        assertEquals("chain-1", topRule.getString("outboundTag"))
+        assertEquals("chain-in-1", topRule.getJSONArray("inboundTag").getString(0))
+        assertEquals("dns-out", routingRules.getJSONObject(1).getString("outboundTag"))
+    }
+
+    @Test
+    fun `vless flow is omitted on non tcp or plain security, xhttp downloadSettings gets dialerProxy, and reality fragment uses 1-3`() {
+        val entryKeys = RealityKeyGenerator.generateBundle()
+        val exitKeys = RealityKeyGenerator.generateBundle()
+        val entryVless = com.example.core.model.ProxyProfile(
+            id = 611L,
+            name = "Entry REALITY",
+            protocol = ProxyProtocol.VLESS,
+            serverAddress = "198.51.100.11",
+            serverPort = 443,
+            uuid = entryKeys.uuid,
+            flow = FlowType.VISION,
+            transport = TransportType.TCP,
+            security = SecurityType.REALITY,
+            sni = "www.microsoft.com",
+            realityPublicKey = entryKeys.publicKey,
+            realityShortId = entryKeys.shortId,
+        )
+        val xhttpExit = com.example.core.model.ProxyProfile(
+            id = 612L,
+            name = "Exit XHTTP",
+            protocol = ProxyProtocol.VLESS,
+            serverAddress = "203.0.113.22",
+            serverPort = 443,
+            uuid = exitKeys.uuid,
+            flow = FlowType.VISION, // Stale default flow on non-TCP transport must NOT be emitted
+            transport = TransportType.XHTTP,
+            security = SecurityType.REALITY,
+            sni = "www.apple.com",
+            realityPublicKey = exitKeys.publicKey,
+            realityShortId = exitKeys.shortId,
+            path = "/xhttp",
+            xhttpExtra = """{"downloadSettings":{"address":"203.0.113.23","port":443,"network":"xhttp"}}""",
+            chainProxyId = entryVless.id,
+        )
+
+        val config = JSONObject(
+            XrayConfigBuilder.buildConfigJson(
+                profile = xhttpExit,
+                settings = XraySettings(fragmentEnabled = true, fragmentPackets = "tlshello"),
+                rules = emptyList(),
+                allProfiles = listOf(entryVless, xhttpExit),
+                chainLoopbackPorts = mapOf(1 to 43222),
+            )
+        )
+
+        val outbounds = config.getJSONArray("outbounds")
+        val proxyOut = outbounds.getJSONObject(0)
+        val proxyUser = proxyOut.getJSONObject("settings").getJSONArray("vnext").getJSONObject(0)
+            .getJSONArray("users").getJSONObject(0)
+        assertTrue("VLESS XHTTP must not emit flow", !proxyUser.has("flow"))
+
+        val dlSockopt = proxyOut.getJSONObject("streamSettings")
+            .getJSONObject("xhttpSettings")
+            .getJSONObject("extra")
+            .getJSONObject("downloadSettings")
+            .getJSONObject("sockopt")
+        assertEquals("chain-dial-1", dlSockopt.getString("dialerProxy"))
+        assertEquals("AsIs", dlSockopt.getString("domainStrategy"))
+
+        // Outermost hop is REALITY, so fragment packets "tlshello" must normalize to "1-3"
+        val fragmentOut = (0 until outbounds.length())
+            .map { outbounds.getJSONObject(it) }
+            .first { it.getString("tag") == "fragment" }
+        assertEquals("1-3", fragmentOut.getJSONObject("settings").getJSONObject("fragment").getString("packets"))
+
+        // Plain TCP VLESS with SecurityType.NONE must also omit flow
+        val plainVless = entryVless.copy(id = 613L, security = SecurityType.NONE, flow = FlowType.VISION)
+        val plainCfg = JSONObject(
+            XrayConfigBuilder.buildConfigJson(
+                profile = plainVless,
+                settings = XraySettings(),
+                rules = emptyList(),
+            )
+        )
+        val plainUser = plainCfg.getJSONArray("outbounds").getJSONObject(0)
+            .getJSONObject("settings").getJSONArray("vnext").getJSONObject(0)
+            .getJSONArray("users").getJSONObject(0)
+        assertTrue("Plain VLESS (security=none) must not emit flow", !plainUser.has("flow"))
+    }
+
+    @Test
+    fun `allocateChainLoopbackPorts skips tuic ssh and outermost socks5 while isolating vless hops and stats dedupes chain tags`() {
+        val vless1 = com.example.core.model.ProxyProfile(id = 701L, protocol = ProxyProtocol.VLESS)
+        val vless2 = com.example.core.model.ProxyProfile(id = 702L, protocol = ProxyProtocol.VLESS, chainProxyId = 701L)
+        val tuic = com.example.core.model.ProxyProfile(id = 703L, protocol = ProxyProtocol.TUIC)
+        val ssh = com.example.core.model.ProxyProfile(id = 704L, protocol = ProxyProtocol.SSH)
+        val socks = com.example.core.model.ProxyProfile(id = 705L, protocol = ProxyProtocol.SOCKS5)
+
+        // TUIC -> VLESS, SSH -> VLESS, SOCKS5 -> VLESS already have isolated OS TCP sockets
+        assertTrue(XrayConfigBuilder.allocateChainLoopbackPorts(listOf(vless2, tuic)).isEmpty())
+        assertTrue(XrayConfigBuilder.allocateChainLoopbackPorts(listOf(vless2, ssh)).isEmpty())
+        assertTrue(XrayConfigBuilder.allocateChainLoopbackPorts(listOf(vless2, socks)).isEmpty())
+
+        // VLESS -> VLESS gets a real loopback port for hop index 1
+        val vlessToVlessPorts = XrayConfigBuilder.allocateChainLoopbackPorts(listOf(vless2, vless1))
+        assertEquals(setOf(1), vlessToVlessPorts.keys)
+        assertTrue(vlessToVlessPorts[1]!! in 1..65535)
+
+        // 3-hop VLESS -> SOCKS5 (mid) -> VLESS gets distinct loopback ports for BOTH boundaries
+        val threeHopPorts = XrayConfigBuilder.allocateChainLoopbackPorts(listOf(vless2, socks, vless1))
+        assertEquals(setOf(1, 2), threeHopPorts.keys)
+        assertTrue(threeHopPorts[1] != threeHopPorts[2])
+
+        // parseOutboundStatsJson must ignore chain-dial-* and chain-* tags to avoid triple-counting traffic
+        val stats = com.example.core.vpn.XrayVpnService.parseOutboundStatsJson(
+            """{"proxy":{"uplink":1000,"downlink":5000},"chain-dial-1":{"uplink":1000,"downlink":5000},"chain-1":{"uplink":1000,"downlink":5000},"fragment":{"uplink":1000,"downlink":5000},"direct":{"uplink":200,"downlink":300}}"""
+        )
+        assertNotNull(stats)
+        assertEquals(1200L, stats!!.first)
+        assertEquals(5300L, stats.second)
+    }
+
+    @Test
+    fun `socks uri parsing handles plaintext auth, base64 auth, url-encoded fragment, and ipv6 literals cleanly`() {
+        // 1. Plaintext user:pass@IPv4:port with URL-encoded host:port fragment
+        val plain = UriParser.parseSingle("socks://demoUser:demoPass@198.51.100.40:12114#198.51.100.40%3A12114")
+        assertNotNull(plain)
+        assertEquals(ProxyProtocol.SOCKS5, plain!!.protocol)
+        assertEquals("198.51.100.40", plain.serverAddress)
+        assertEquals(12114, plain.serverPort)
+        assertEquals("demoUser", plain.username)
+        assertEquals("demoPass", plain.password)
+        assertEquals("198.51.100.40:12114", plain.name)
+
+        // 2. Base64-encoded user:pass (v2rayN / Shadowrocket format)
+        val b64Creds = android.util.Base64.encodeToString(
+            "alice:s3cr3t!".toByteArray(Charsets.UTF_8),
+            android.util.Base64.URL_SAFE or android.util.Base64.NO_PADDING or android.util.Base64.NO_WRAP,
+        )
+        val b64Socks = UriParser.parseSingle("socks://$b64Creds@203.0.113.20:1080#Base64Socks")
+        assertNotNull(b64Socks)
+        assertEquals("alice", b64Socks!!.username)
+        assertEquals("s3cr3t!", b64Socks.password)
+        assertEquals("203.0.113.20", b64Socks.serverAddress)
+
+        // 3. IPv6 literal host strips brackets on parse and re-brackets on export
+        val v6Socks = UriParser.parseSingle("socks://u6:p6@[2001:db8::10]:1080#IPv6Socks")
+        assertNotNull(v6Socks)
+        assertEquals("2001:db8::10", v6Socks!!.serverAddress)
+        assertEquals(1080, v6Socks.serverPort)
+        assertEquals("u6", v6Socks.username)
+        assertEquals("p6", v6Socks.password)
+        val exportedV6 = UriParser.toShareUri(v6Socks)
+        assertTrue("Expected bracketed IPv6 in share URI, got: $exportedV6", exportedV6.contains("[2001:db8::10]:1080"))
+    }
+
+    @Test
+    fun `socks5 ipv6 exit proxy receives ipv6 doh fallback dns in default and ipv6-only modes`() {
+        val socksProfile = com.example.core.model.ProxyProfile(
+            id = 801L,
+            name = "SOCKS5 IPv6 Exit",
+            protocol = ProxyProtocol.SOCKS5,
+            serverAddress = "198.51.100.40",
+            serverPort = 12114,
+            username = "demoUser",
+            password = "demoPass",
+            security = SecurityType.NONE,
+            flow = FlowType.NONE,
+        )
+
+        // Default Dual-Stack mode includes IPv6 DoH fallback for SOCKS5 exits
+        val dualCfg = JSONObject(
+            XrayConfigBuilder.buildConfigJson(
+                profile = socksProfile,
+                settings = XraySettings(ipv6Mode = com.example.core.model.IPv6Mode.ENABLE),
+                rules = emptyList(),
+            )
+        )
+        val dualDnsArr = dualCfg.getJSONObject("dns").getJSONArray("servers")
+        val dualDnsStrings = (0 until dualDnsArr.length()).map { dualDnsArr.optString(it) }
+        assertTrue("Expected IPv4 DoH in $dualDnsStrings", "https://1.1.1.1/dns-query" in dualDnsStrings)
+        assertTrue("Expected IPv6 DoH fallback in $dualDnsStrings", "https://[2606:4700:4700::1111]/dns-query" in dualDnsStrings)
+
+        // IPv6-Only mode promotes IPv6 DoH as primary remote DNS
+        val v6OnlyCfg = JSONObject(
+            XrayConfigBuilder.buildConfigJson(
+                profile = socksProfile,
+                settings = XraySettings(ipv6Mode = com.example.core.model.IPv6Mode.ONLY),
+                rules = emptyList(),
+            )
+        )
+        assertEquals("UseIPv6", v6OnlyCfg.getJSONObject("dns").getString("queryStrategy"))
+        assertEquals(
+            "https://[2606:4700:4700::1111]/dns-query",
+            v6OnlyCfg.getJSONObject("dns").getJSONArray("servers").getString(0),
+        )
+    }
+
+    @Test
+    fun `socks5 probe detects rfc1929 auth, ipv6-only egress, and auth failure over real local socket`() {
+        val server = java.net.ServerSocket(0, 8, java.net.InetAddress.getByName("127.0.0.1"))
+        val running = java.util.concurrent.atomic.AtomicBoolean(true)
+        val worker = Thread {
+            while (running.get()) {
+                val client = runCatching { server.accept() }.getOrNull() ?: break
+                Thread {
+                    client.use { sock ->
+                        runCatching {
+                            val inp = java.io.DataInputStream(sock.getInputStream())
+                            val out = sock.getOutputStream()
+                            val ver = inp.readUnsignedByte()
+                            val nMethods = inp.readUnsignedByte()
+                            val methods = ByteArray(nMethods)
+                            inp.readFully(methods)
+                            if (ver != 0x05 || !methods.contains(0x02.toByte())) {
+                                out.write(byteArrayOf(0x05, 0xFF.toByte()))
+                                out.flush()
+                                return@use
+                            }
+                            out.write(byteArrayOf(0x05, 0x02))
+                            out.flush()
+
+                            // RFC 1929 subnegotiation
+                            val authVer = inp.readUnsignedByte()
+                            val uLen = inp.readUnsignedByte()
+                            val uBytes = ByteArray(uLen)
+                            inp.readFully(uBytes)
+                            val pLen = inp.readUnsignedByte()
+                            val pBytes = ByteArray(pLen)
+                            inp.readFully(pBytes)
+                            val ok = authVer == 0x01 &&
+                                String(uBytes, Charsets.UTF_8) == "demoUser" &&
+                                String(pBytes, Charsets.UTF_8) == "demoPass"
+                            out.write(byteArrayOf(0x01, if (ok) 0x00 else 0x01))
+                            out.flush()
+                            if (!ok) return@use
+
+                            // CONNECT request: allow ATYP=0x04 (IPv6), reject ATYP=0x01 (IPv4)
+                            inp.readUnsignedByte() // VER
+                            inp.readUnsignedByte() // CMD
+                            inp.readUnsignedByte() // RSV
+                            val atyp = inp.readUnsignedByte()
+                            val addrLen = if (atyp == 0x04) 16 else 4
+                            val addr = ByteArray(addrLen + 2)
+                            inp.readFully(addr)
+                            val rep: Byte = if (atyp == 0x04) 0x00 else 0x04
+                            out.write(byteArrayOf(0x05, rep, 0x00, 0x01, 0, 0, 0, 0, 0, 0))
+                            out.flush()
+                        }
+                    }
+                }.start()
+            }
+        }
+        worker.isDaemon = true
+        worker.start()
+
+        try {
+            kotlinx.coroutines.runBlocking {
+                val okRes = com.example.core.network.NetworkTester.probeSocks5Proxy(
+                    host = "127.0.0.1",
+                    port = server.localPort,
+                    username = "demoUser",
+                    password = "demoPass",
+                    timeoutMs = 3000,
+                )
+                assertTrue(okRes.reachable)
+                assertTrue(okRes.authOk)
+                assertEquals(false, okRes.ipv4Exit)
+                assertEquals(true, okRes.ipv6Exit)
+                assertNotNull(okRes.latencyMs)
+                assertEquals("IPv6 only", okRes.summaryLabel())
+
+                val badAuthRes = com.example.core.network.NetworkTester.probeSocks5Proxy(
+                    host = "127.0.0.1",
+                    port = server.localPort,
+                    username = "demoUser",
+                    password = "wrongPassword",
+                    timeoutMs = 3000,
+                )
+                assertTrue(badAuthRes.reachable)
+                assertEquals(false, badAuthRes.authOk)
+                assertEquals("Auth failed", badAuthRes.summaryLabel())
+            }
+        } finally {
+            running.set(false)
+            runCatching { server.close() }
+        }
+    }
 }

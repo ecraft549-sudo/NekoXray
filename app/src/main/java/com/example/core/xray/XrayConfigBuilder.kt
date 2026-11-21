@@ -115,6 +115,43 @@ object XrayConfigBuilder {
         return false
     }
 
+    /**
+     * Allocates ephemeral loopback TCP ports on 127.0.0.1 for chain hop boundaries that benefit
+     * from a real OS TCP socket (decoupling nested XTLS Vision / REALITY / XHTTP state machines
+     * across chained Xray outbounds, matching the reliability of local SOCKS5 bridge chains).
+     *
+     * Key is the upstream hop index in `hops` (`1..hops.lastIndex`).
+     */
+    fun allocateChainLoopbackPorts(hops: List<ProxyProfile>): Map<Int, Int> {
+        if (hops.size <= 1) return emptyMap()
+        val allocated = LinkedHashMap<Int, Int>()
+        val usedPorts = HashSet<Int>()
+        for (idx in 1 until hops.size) {
+            val upstream = hops[idx]
+            val alreadyIsolatedSocket = upstream.protocol == ProxyProtocol.SSH ||
+                upstream.protocol == ProxyProtocol.TUIC ||
+                (upstream.protocol == ProxyProtocol.SOCKS5 && idx == hops.lastIndex)
+            if (alreadyIsolatedSocket) continue
+
+            val port = findFreeLoopbackPort(usedPorts)
+            if (port in 1..65535) {
+                allocated[idx] = port
+                usedPorts.add(port)
+            }
+        }
+        return allocated
+    }
+
+    private fun findFreeLoopbackPort(exclude: Set<Int>): Int {
+        repeat(8) {
+            val candidate = runCatching {
+                java.net.ServerSocket(0, 1, java.net.InetAddress.getByName("127.0.0.1")).use { it.localPort }
+            }.getOrDefault(0)
+            if (candidate in 1..65535 && candidate !in exclude) return candidate
+        }
+        return 0
+    }
+
     fun buildConfigJson(
         profile: ProxyProfile,
         settings: XraySettings,
@@ -126,6 +163,7 @@ object XrayConfigBuilder {
         hasGeoSite: Boolean = true,
         allProfiles: List<ProxyProfile> = emptyList(),
         chainBridgePorts: Map<Long, Int> = emptyMap(),
+        chainLoopbackPorts: Map<Int, Int> = emptyMap(),
     ): String {
         if (profile.protocol == ProxyProtocol.CUSTOM_JSON && profile.customConfigJson.isNotBlank()) {
             return runCatching {
@@ -171,7 +209,25 @@ object XrayConfigBuilder {
                 raw = directDnsServer,
                 protectDoh = settings.protectDirectDns,
             )
-            val remoteDnsServer = settings.remoteDns.ifBlank { "https://1.1.1.1/dns-query" }
+            val rawRemoteDns = settings.remoteDns.ifBlank { "https://1.1.1.1/dns-query" }
+            val ipv6FallbackDoh = "https://[2606:4700:4700::1111]/dns-query"
+            val remoteDnsHostRaw = extractHostFromUrl(rawRemoteDns)
+            val remoteDnsIsIpv4Literal = Regex("^\\d{1,3}(\\.\\d{1,3}){3}$").matches(remoteDnsHostRaw)
+            val remoteDnsServer = if (
+                settings.ipv6Mode == com.example.core.model.IPv6Mode.ONLY &&
+                remoteDnsIsIpv4Literal
+            ) {
+                ipv6FallbackDoh
+            } else {
+                rawRemoteDns
+            }
+            val needsIpv6FallbackRemoteDns = settings.ipv6Mode != com.example.core.model.IPv6Mode.DISABLE &&
+                remoteDnsServer != ipv6FallbackDoh &&
+                !remoteDnsServer.contains("2606:4700") &&
+                (
+                    settings.ipv6Mode == com.example.core.model.IPv6Mode.PREFER ||
+                        profile.protocol in setOf(ProxyProtocol.SOCKS5, ProxyProtocol.HTTP)
+                    )
             val directRuleDomains = rules
                 .filter { it.enabled && it.action == RouteAction.DIRECT }
                 .flatMap { splitItems(it.domains) }
@@ -212,6 +268,9 @@ object XrayConfigBuilder {
                         add("tcp://8.8.8.8:53")
                     }
                     add(remoteDnsServer)
+                    if (needsIpv6FallbackRemoteDns) {
+                        add(ipv6FallbackDoh)
+                    }
                     if (settings.directDnsEnabled) {
                         addJsonObject {
                             put("address", effectiveDirectDnsAddress)
@@ -299,14 +358,40 @@ object XrayConfigBuilder {
                         }
                     }
                 }
+                for (idx in 1 until hops.size) {
+                    val loopbackPort = chainLoopbackPorts[idx]?.takeIf { it in 1..65535 } ?: continue
+                    addJsonObject {
+                        put("tag", "chain-in-$idx")
+                        put("listen", "127.0.0.1")
+                        put("port", loopbackPort)
+                        put("protocol", "socks")
+                        putJsonObject("settings") {
+                            put("auth", "noauth")
+                            put("udp", true)
+                        }
+                        putJsonObject("sniffing") {
+                            put("enabled", false)
+                        }
+                    }
+                }
             }
 
             putJsonArray("outbounds") {
                 hops.forEachIndexed { idx, hop ->
                     val tag = if (idx == 0) "proxy" else "chain-$idx"
-                    val dialerProxyTag = if (idx + 1 < hops.size) "chain-${idx + 1}" else null
+                    val nextHopIdx = idx + 1
+                    val nextLoopbackPort = if (nextHopIdx < hops.size) {
+                        chainLoopbackPorts[nextHopIdx]?.takeIf { it in 1..65535 }
+                    } else {
+                        null
+                    }
+                    val dialerProxyTag = when {
+                        nextHopIdx >= hops.size -> null
+                        nextLoopbackPort != null -> "chain-dial-$nextHopIdx"
+                        else -> "chain-$nextHopIdx"
+                    }
                     val isOutermostHop = idx == hops.lastIndex
-                    val upstreamIsWireGuard = idx + 1 < hops.size && hops[idx + 1].protocol == ProxyProtocol.WIREGUARD
+                    val upstreamIsWireGuard = nextHopIdx < hops.size && hops[nextHopIdx].protocol == ProxyProtocol.WIREGUARD
                     val hopSshPort = chainBridgePorts[hop.id] ?: if (idx == 0) sshLocalBridgePort else 0
                     val hopTuicPort = chainBridgePorts[hop.id] ?: if (idx == 0) tuicLocalBridgePort else 0
                     add(
@@ -322,15 +407,37 @@ object XrayConfigBuilder {
                             hopIndex = idx,
                         )
                     )
+                    if (nextLoopbackPort != null) {
+                        addJsonObject {
+                            put("tag", "chain-dial-$nextHopIdx")
+                            put("protocol", "socks")
+                            putJsonObject("settings") {
+                                putJsonArray("servers") {
+                                    addJsonObject {
+                                        put("address", "127.0.0.1")
+                                        put("port", nextLoopbackPort)
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
 
                 if (settings.fragmentEnabled) {
+                    val effectiveFragmentPackets = if (
+                        outermostHop.security == SecurityType.REALITY &&
+                        settings.fragmentPackets.equals("tlshello", ignoreCase = true)
+                    ) {
+                        "1-3"
+                    } else {
+                        settings.fragmentPackets
+                    }
                     addJsonObject {
                         put("tag", "fragment")
                         put("protocol", "freedom")
                         putJsonObject("settings") {
                             putJsonObject("fragment") {
-                                put("packets", settings.fragmentPackets)
+                                put("packets", effectiveFragmentPackets)
                                 put("length", settings.fragmentLength)
                                 put("interval", settings.fragmentInterval)
                             }
@@ -373,6 +480,16 @@ object XrayConfigBuilder {
             putJsonObject("routing") {
                 put("domainStrategy", settings.domainStrategy)
                 putJsonArray("rules") {
+                    for (idx in 1 until hops.size) {
+                        if (chainLoopbackPorts[idx]?.takeIf { it in 1..65535 } != null) {
+                            addJsonObject {
+                                put("type", "field")
+                                putJsonArray("inboundTag") { add("chain-in-$idx") }
+                                put("outboundTag", "chain-$idx")
+                            }
+                        }
+                    }
+
                     addJsonObject {
                         put("type", "field")
                         putJsonArray("inboundTag") {
@@ -513,7 +630,10 @@ object XrayConfigBuilder {
                                     addJsonObject {
                                         put("id", profile.uuid)
                                         put("encryption", profile.encryption.ifBlank { "none" })
-                                        if (profile.flow != FlowType.NONE) {
+                                        val canEmitFlow = profile.transport == TransportType.TCP &&
+                                            profile.security != SecurityType.NONE &&
+                                            profile.flow != FlowType.NONE
+                                        if (canEmitFlow) {
                                             put("flow", profile.flow.wireValue)
                                         }
                                         put("level", 0)
@@ -714,7 +834,11 @@ object XrayConfigBuilder {
                 ProxyProtocol.CUSTOM_JSON -> Unit
             }
 
-            if (profile.muxEnabled && profile.flow == FlowType.NONE &&
+            val hasEffectiveFlow = profile.protocol == ProxyProtocol.VLESS &&
+                profile.transport == TransportType.TCP &&
+                profile.security != SecurityType.NONE &&
+                profile.flow != FlowType.NONE
+            if (profile.muxEnabled && !hasEffectiveFlow &&
                 profile.protocol in listOf(ProxyProtocol.VLESS, ProxyProtocol.VMESS, ProxyProtocol.TROJAN)
             ) {
                 putJsonObject("mux") {
@@ -808,7 +932,13 @@ object XrayConfigBuilder {
                         put("mode", profile.xhttpMode.ifBlank { "auto" })
                         if (profile.xhttpExtra.isNotBlank()) {
                             runCatching {
-                                put("extra", prettyJson.parseToJsonElement(profile.xhttpExtra))
+                                val parsedExtra = prettyJson.parseToJsonElement(profile.xhttpExtra)
+                                val effectiveExtra = injectDialerProxyIntoXhttpExtra(
+                                    extra = parsedExtra,
+                                    dialerProxyTag = dialerProxyTag,
+                                    domainStrategy = domainStrategy,
+                                )
+                                put("extra", effectiveExtra)
                             }
                         }
                     }
@@ -863,6 +993,37 @@ object XrayConfigBuilder {
                     }
                 }
             }
+        }
+    }
+
+    private fun injectDialerProxyIntoXhttpExtra(
+        extra: JsonElement,
+        dialerProxyTag: String?,
+        domainStrategy: String,
+    ): JsonElement {
+        if (dialerProxyTag == null || extra !is JsonObject) return extra
+        val dl = extra["downloadSettings"] as? JsonObject ?: return extra
+        val existingSockopt = dl["sockopt"] as? JsonObject
+        val mergedSockopt = buildJsonObject {
+            existingSockopt?.forEach { (k, v) -> put(k, v) }
+            if (existingSockopt == null || !existingSockopt.containsKey("domainStrategy")) {
+                put("domainStrategy", domainStrategy)
+            }
+            if (existingSockopt == null || !existingSockopt.containsKey("dialerProxy")) {
+                put("dialerProxy", dialerProxyTag)
+            }
+        }
+        val updatedDl = buildJsonObject {
+            dl.forEach { (k, v) ->
+                if (k != "sockopt") put(k, v)
+            }
+            put("sockopt", mergedSockopt)
+        }
+        return buildJsonObject {
+            extra.forEach { (k, v) ->
+                if (k != "downloadSettings") put(k, v)
+            }
+            put("downloadSettings", updatedDl)
         }
     }
 
